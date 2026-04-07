@@ -38,6 +38,21 @@
   font-weight: bold;
 }
 
+.btn[data-checked] {
+  background-color: var(--primary-light);
+}
+
+.btn[data-checked][aria-selected='true'] {
+  background-color: var(--primary);
+}
+
+.overlayCheckbox {
+  flex: none;
+  margin: 0 0.375rem 0 0;
+  cursor: pointer;
+  accent-color: var(--secondary-dark);
+}
+
 .fileBtn {
   composes: btn;
   height: var(--toolbar-height);

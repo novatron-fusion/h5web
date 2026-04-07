@@ -20,6 +20,9 @@ import { PiEmptyBold, PiGridFourBold } from 'react-icons/pi';
 import { RxDotFilled } from 'react-icons/rx';
 import { TbCube, TbTimeline } from 'react-icons/tb';
 
+import { type AttrValuesStore, type EntitiesStore } from '../providers/models';
+import { isNxDataGroup } from '../vis-packs/nexus/utils';
+
 const DATASET_ICONS = [RxDotFilled, TbTimeline, PiGridFourBold, TbCube];
 
 export const EXPLORER_ID = 'h5web-explorer-tree';
@@ -106,4 +109,24 @@ export function focusLast(evt: KeyboardEvent<HTMLButtonElement>): void {
 
   buttonList[buttonList.length - 1]?.focus();
   evt.preventDefault();
+}
+
+export function isOverlayEligible(
+  entity: ChildEntity,
+  entitiesStore: EntitiesStore,
+  attrValuesStore: AttrValuesStore,
+): boolean {
+  if (!isGroup(entity)) {
+    return false;
+  }
+
+  try {
+    const fullEntity = entitiesStore.get(entity.path);
+    if (!isGroup(fullEntity) || !('children' in fullEntity)) {
+      return false;
+    }
+    return isNxDataGroup(fullEntity, attrValuesStore);
+  } catch {
+    return false;
+  }
 }

@@ -9,6 +9,9 @@ import styles from './Sidebar.module.css';
 interface Props {
   selectedPath: string;
   onSelect: (path: string) => void;
+  isOverlaying: boolean;
+  checkedPaths: Set<string>;
+  onToggleCheckedPath: (path: string) => void;
 }
 
 enum Tab {
@@ -17,14 +20,22 @@ enum Tab {
 }
 
 function Sidebar(props: Props) {
-  const { selectedPath, onSelect } = props;
+  const { selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
 
   const [tab, setTab] = useState<Tab>(Tab.Explore);
   const [searchValue, setSearchValue] = useState<string>('');
 
   const { getSearchablePaths } = useDataContext();
   if (!getSearchablePaths) {
-    return <Explorer selectedPath={selectedPath} onSelect={onSelect} />;
+    return (
+      <Explorer
+        selectedPath={selectedPath}
+        onSelect={onSelect}
+        isOverlaying={isOverlaying}
+        checkedPaths={checkedPaths}
+        onToggleCheckedPath={onToggleCheckedPath}
+      />
+    );
   }
 
   return (
@@ -52,7 +63,13 @@ function Sidebar(props: Props) {
         </button>
       </div>
       {tab === Tab.Explore && (
-        <Explorer selectedPath={selectedPath} onSelect={onSelect} />
+        <Explorer
+          selectedPath={selectedPath}
+          onSelect={onSelect}
+          isOverlaying={isOverlaying}
+          checkedPaths={checkedPaths}
+          onToggleCheckedPath={onToggleCheckedPath}
+        />
       )}
       {tab === Tab.Search && (
         <SearchContainer

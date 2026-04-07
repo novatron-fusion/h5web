@@ -2,32 +2,23 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+autoInstallPeers: false
 
 # Enforce Node and pnpm versions specified in `engines` field of `package.json`
 engineStrict: true
 
 # Use whichever pnpm version is available in the environment
 managePackageManagerVersions: false
-
-# Hoist `@types` packages to root `node_modules` to fix type error in linting config
-# https://github.com/silx-kit/h5web/pull/1787
-publicHoistPattern:
-  - '@types/*'
-
-# Manage peer dependencies explicitly and predictibly
-strictPeerDependencies: true
-autoInstallPeers: false
-resolvePeersFromWorkspaceRoot: false
-
-# Fail install if any dependency has unreviewed build scripts
-strictDepBuilds: true
+nodeVersion: 24.0.0
 onlyBuiltDependencies:
   - '@swc/core'
   - 'cypress'
   - 'esbuild'
 
-# Save exact dependency versions in `package.json`
-savePrefix: ''
+# Hoist `@types` packages to root `node_modules` to fix type error in linting config
+# https://github.com/silx-kit/h5web/pull/1787
+publicHoistPattern:
+  - '@types/*'
 
 # Check that `node_modules` is up to date before running scripts
 # verifyDepsBeforeRun: 'error'
@@ -36,3 +27,13 @@ savePrefix: ''
 requiredScripts:
   - 'lint:eslint'
   - 'lint:tsc'
+resolvePeersFromWorkspaceRoot: false
+
+# Save exact dependency versions in `package.json`
+savePrefix: ''
+
+# Fail install if any dependency has unreviewed build scripts
+strictDepBuilds: true
+
+# Manage peer dependencies explicitly and predictibly
+strictPeerDependencies: true

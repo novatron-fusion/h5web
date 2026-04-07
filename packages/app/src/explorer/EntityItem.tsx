@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { FiRefreshCw } from 'react-icons/fi';
 
+import { useDataContext } from '../providers/DataProvider';
 import EntityList from './EntityList';
 import styles from './Explorer.module.css';
 import NxBadge from './NxBadge';
@@ -22,6 +23,7 @@ import {
   focusParent,
   focusPrevious,
   getIcon,
+  isOverlayEligible,
 } from './utils';
 
 interface Props {
@@ -30,13 +32,20 @@ interface Props {
   level: number;
   selectedPath: string;
   onSelect: (path: string) => void;
+  isOverlaying: boolean;
+  checkedPaths: Set<string>;
+  onToggleCheckedPath: (path: string) => void;
 }
 
 function EntityItem(props: Props) {
-  const { path, entity, level, selectedPath, onSelect } = props;
+  const { path, entity, level, selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
   const isSelected = path === selectedPath;
+  const isChecked = checkedPaths.has(path);
 
   const btnRef = useRef<HTMLButtonElement>(null);
+
+  const { entitiesStore, attrValuesStore } = useDataContext();
+  const eligible = isOverlaying && isOverlayEligible(entity, entitiesStore, attrValuesStore);
 
   // Group AND (selected OR parent of selected entity)
   const shouldBeExpanded =
@@ -118,6 +127,7 @@ function EntityItem(props: Props) {
         aria-expanded={isGroup(entity) ? isExpanded : undefined}
         aria-selected={isSelected}
         data-path={path}
+        data-checked={isChecked || undefined}
         onClick={() => {
           // Expand if collapsed; collapse is expanded and selected
           if (isGroup(entity) && (!isExpanded || isSelected)) {
@@ -128,6 +138,16 @@ function EntityItem(props: Props) {
         }}
         onKeyDown={handleKeyDown}
       >
+        {eligible && (
+          <input
+            className={styles.overlayCheckbox}
+            type="checkbox"
+            checked={isChecked}
+            aria-label={`Add ${entity.name} to overlay`}
+            onChange={() => onToggleCheckedPath(path)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        )}
         <Icon className={styles.icon} />
         <span className={styles.name}>{entity.name}</span>
 
@@ -153,6 +173,9 @@ function EntityItem(props: Props) {
             parentPath={path}
             selectedPath={selectedPath}
             onSelect={onSelect}
+            isOverlaying={isOverlaying}
+            checkedPaths={checkedPaths}
+            onToggleCheckedPath={onToggleCheckedPath}
           />
         </Suspense>
       )}

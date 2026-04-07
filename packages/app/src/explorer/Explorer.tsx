@@ -9,10 +9,13 @@ import { EXPLORER_ID, focusLast, focusNext } from './utils';
 interface Props {
   selectedPath: string;
   onSelect: (path: string) => void;
+  isOverlaying: boolean;
+  checkedPaths: Set<string>;
+  onToggleCheckedPath: (path: string) => void;
 }
 
 function Explorer(props: Props) {
-  const { selectedPath, onSelect } = props;
+  const { selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
   const { filename } = useDataContext();
 
   const ref = useRef<HTMLDivElement>(null);
@@ -68,6 +71,9 @@ function Explorer(props: Props) {
           parentPath="/"
           selectedPath={selectedPath}
           onSelect={onSelect}
+          isOverlaying={isOverlaying}
+          checkedPaths={checkedPaths}
+          onToggleCheckedPath={onToggleCheckedPath}
         />
       </Suspense>
     </div>

@@ -10,10 +10,13 @@ interface Props {
   parentPath: string;
   selectedPath: string;
   onSelect: (path: string) => void;
+  isOverlaying: boolean;
+  checkedPaths: Set<string>;
+  onToggleCheckedPath: (path: string) => void;
 }
 
 function EntityList(props: Props) {
-  const { level, parentPath, selectedPath, onSelect } = props;
+  const { level, parentPath, selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
 
   const group = useEntity(parentPath);
   assertGroup(group);
@@ -35,6 +38,9 @@ function EntityList(props: Props) {
             level={level}
             selectedPath={selectedPath}
             onSelect={onSelect}
+            isOverlaying={isOverlaying}
+            checkedPaths={checkedPaths}
+            onToggleCheckedPath={onToggleCheckedPath}
           />
         );
       })}

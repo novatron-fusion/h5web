@@ -1,7 +1,7 @@
 import '@h5web/lib'; // eslint-disable-line import/no-duplicates -- make sure lib styles come first in CSS bundle
 
 import { KeepZoomProvider } from '@h5web/lib'; // eslint-disable-line import/no-duplicates
-import { Suspense, useState } from 'react';
+import { Suspense, useCallback, useMemo, useState } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import {
   Group,
@@ -21,7 +21,10 @@ import MetadataViewer from './metadata-viewer/MetadataViewer';
 import { useDataContext } from './providers/DataProvider';
 import Sidebar from './Sidebar';
 import VisConfigProvider from './VisConfigProvider';
+import OverlayVisualizer from './visualizer/OverlayVisualizer';
 import Visualizer from './visualizer/Visualizer';
+
+export type ViewerMode = 'display' | 'inspect' | 'overlay';
 
 const SIDEBAR_ID = 'h5w-sidebar';
 export const MAIN_AREA_ID = 'h5w-main-area';
@@ -45,13 +48,41 @@ function App(props: Props) {
   } = props;
 
   const [selectedPath, setSelectedPath] = useState<string>(initialPath);
-  const [isInspecting, setInspecting] = useState(false);
+  const [viewerMode, setViewerMode] = useState<ViewerMode>('display');
+  const [checkedPaths, setCheckedPaths] = useState<Set<string>>(new Set());
+
+  const isInspecting = viewerMode === 'inspect';
+  const isOverlaying = viewerMode === 'overlay';
 
   const { valuesStore } = useDataContext();
   function onSelectPath(path: string) {
     setSelectedPath(path);
     valuesStore.abortAll('entity changed', true);
   }
+
+  const onToggleCheckedPath = useCallback((path: string) => {
+    setCheckedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
+  const onChangeViewerMode = useCallback((mode: ViewerMode) => {
+    if (mode !== 'overlay') {
+      setCheckedPaths(new Set());
+    }
+    setViewerMode(mode);
+  }, []);
+
+  const checkedPathsArray = useMemo(
+    () => [...checkedPaths],
+    [checkedPaths],
+  );
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'h5web:layout',
@@ -99,7 +130,13 @@ function App(props: Props) {
             }
           }}
         >
-          <Sidebar selectedPath={selectedPath} onSelect={onSelectPath} />
+          <Sidebar
+            selectedPath={selectedPath}
+            onSelect={onSelectPath}
+            isOverlaying={isOverlaying}
+            checkedPaths={checkedPaths}
+            onToggleCheckedPath={onToggleCheckedPath}
+          />
         </Panel>
 
         <Separator className={styles.splitter} />
@@ -108,7 +145,7 @@ function App(props: Props) {
           <BreadcrumbsBar
             path={selectedPath}
             isSidebarOpen={isSidebarOpen}
-            isInspecting={isInspecting}
+            viewerMode={viewerMode}
             onToggleSidebar={() => {
               if (isSidebarOpen) {
                 sidebarPanelRef.current?.collapse();
@@ -116,7 +153,7 @@ function App(props: Props) {
                 sidebarPanelRef.current?.expand();
               }
             }}
-            onChangeInspecting={setInspecting}
+            onChangeViewerMode={onChangeViewerMode}
             onSelectPath={onSelectPath}
             getFeedbackURL={getFeedbackURL}
           />
@@ -124,13 +161,15 @@ function App(props: Props) {
             <DimMappingProvider>
               <KeepZoomProvider>
                 <ErrorBoundary
-                  resetKeys={[selectedPath, isInspecting]}
+                  resetKeys={[selectedPath, viewerMode]}
                   FallbackComponent={ErrorFallback}
                 >
                   <Suspense
                     fallback={<EntityLoader isInspecting={isInspecting} />}
                   >
-                    {isInspecting ? (
+                    {isOverlaying ? (
+                      <OverlayVisualizer checkedPaths={checkedPathsArray} />
+                    ) : isInspecting ? (
                       <MetadataViewer
                         path={selectedPath}
                         onSelectPath={onSelectPath}

@@ -7,6 +7,7 @@ import {
   FiSidebar,
 } from 'react-icons/fi';
 
+import { type ViewerMode } from '../App';
 import { useDataContext } from '../providers/DataProvider';
 import Breadcrumbs from './Breadcrumbs';
 import styles from './BreadcrumbsBar.module.css';
@@ -15,9 +16,9 @@ import { type FeedbackContext } from './models';
 interface Props {
   path: string;
   isSidebarOpen: boolean;
-  isInspecting: boolean;
+  viewerMode: ViewerMode;
   onToggleSidebar: () => void;
-  onChangeInspecting: (b: boolean) => void;
+  onChangeViewerMode: (mode: ViewerMode) => void;
   onSelectPath: (path: string) => void;
   getFeedbackURL?: (context: FeedbackContext) => string;
 }
@@ -26,9 +27,9 @@ function BreadcrumbsBar(props: Props) {
   const {
     path,
     isSidebarOpen,
-    isInspecting,
+    viewerMode,
     onToggleSidebar,
-    onChangeInspecting,
+    onChangeViewerMode,
     onSelectPath,
     getFeedbackURL,
   } = props;
@@ -60,13 +61,14 @@ function BreadcrumbsBar(props: Props) {
       <ToggleGroup
         role="tablist"
         ariaLabel="Viewer mode"
-        value={String(isInspecting)}
+        value={viewerMode}
         onChange={(val) => {
-          onChangeInspecting(val === 'true' || false);
+          onChangeViewerMode(val as ViewerMode);
         }}
       >
-        <ToggleGroup.Btn label="Display" value="false" />
-        <ToggleGroup.Btn label="Inspect" value="true" />
+        <ToggleGroup.Btn label="Display" value="display" />
+        <ToggleGroup.Btn label="Inspect" value="inspect" />
+        <ToggleGroup.Btn label="Overlay" value="overlay" />
       </ToggleGroup>
 
       {document.fullscreenEnabled && (
