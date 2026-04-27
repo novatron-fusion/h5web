@@ -1,14 +1,15 @@
 import {
-  DataCurve,
-  DefaultInteractions,
-  ResetZoomButton,
+  KeepZoom,
+  LineVis,
   ScaleType,
-  VisCanvas,
-  extendDomain,
+  useCombinedDomain,
+  useDomain,
+  useDomains,
 } from '@h5web/lib';
 import { assertGroup } from '@h5web/shared/guards';
-import { type Domain, type NumArray } from '@h5web/shared/vis-models';
-import { Suspense, useMemo, useState } from 'react';
+import { type NumArray } from '@h5web/shared/vis-models';
+import ndarray, { type NdArray } from 'ndarray';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { FiRefreshCw } from 'react-icons/fi';
 
 import { useEntity, useValue } from '../hooks';
@@ -18,25 +19,53 @@ import { useNxData, usePrefetchNxValues } from '../vis-packs/nexus/hooks';
 import styles from './OverlayVisualizer.module.css';
 import visualizerStyles from './Visualizer.module.css';
 
-const CURVE_COLORS = [
-  '#1f77b4',
-  '#ff7f0e',
-  '#2ca02c',
-  '#d62728',
-  '#9467bd',
-  '#8c564b',
-  '#e377c2',
-  '#7f7f7f',
-  '#bcbd22',
-  '#17becf',
+// Fallback defaults (must match LineVis.module.css)
+const DEFAULT_MAIN_COLOR = 'darkblue';
+const DEFAULT_AUX_COLORS = [
+  'orangered',
+  'forestgreen',
+  'red',
+  'mediumorchid',
+  'olive',
 ];
 
-interface CurveData {
+/**
+ * Read the resolved line colors from the DOM via CSS custom properties.
+ * This ensures the legend stays in sync with LineVis, even when the app
+ * overrides --h5w-line--color / --h5w-line--colorAux (e.g. dark-mode).
+ */
+function useLineColors(ref: React.RefObject<HTMLElement | null>) {
+  const [mainColor, setMainColor] = useState(DEFAULT_MAIN_COLOR);
+  const [auxColors, setAuxColors] = useState(DEFAULT_AUX_COLORS);
+
+  // Read after mount when the ref is attached
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) {
+      return;
+    }
+
+    const cs = globalThis.getComputedStyle(el);
+
+    const main = cs.getPropertyValue('--h5w-line--color').trim();
+    if (main) {
+      setMainColor(main);
+    }
+
+    const aux = cs.getPropertyValue('--h5w-line--colorAux').trim();
+    if (aux) {
+      setAuxColors(aux.split(',').map((c) => c.trim()));
+    }
+  }, [ref]);
+
+  return { mainColor, auxColors };
+}
+
+interface NxCurveData {
   path: string;
   label: string;
   abscissas: NumArray;
   ordinates: NumArray;
-  color: string;
 }
 
 interface Props {
@@ -76,7 +105,7 @@ function OverlayVisualizer(props: Props) {
   );
 }
 
-function useNxCurveData(path: string, colorIndex: number): CurveData {
+function useNxCurveData(path: string): NxCurveData {
   const entity = useEntity(path);
   assertGroup(entity);
 
@@ -95,128 +124,218 @@ function useNxCurveData(path: string, colorIndex: number): CurveData {
   const xAxisDef = axisDefs[axisDefs.length - 1];
   const xAxisValue = useValue(xAxisDef?.dataset);
 
-  const signalData = toNumArray(signal)!;
+  const ordinates = toNumArray(signal)!;
   const abscissas: NumArray = xAxisValue
     ? toNumArray(xAxisValue)!
-    : Array.from({ length: signalData.length }, (_, i) => i);
+    : Array.from({ length: ordinates.length }, (_, i) => i);
 
   return {
     path,
     label: signalDef.label || path.split('/').pop() || path,
     abscissas,
-    ordinates: signalData,
-    color: CURVE_COLORS[colorIndex % CURVE_COLORS.length],
+    ordinates,
   };
+}
+
+/**
+ * Resample `srcY` (defined at `srcX`) onto `targetX` using linear interpolation.
+ * Points outside the source range are set to NaN.
+ */
+function resampleToAxis(
+  srcX: NumArray,
+  srcY: NumArray,
+  targetX: NumArray,
+): number[] {
+  const result = new Array<number>(targetX.length);
+
+  for (let i = 0; i < targetX.length; i++) {
+    const tx = Number(targetX[i]);
+
+    // Binary search for the interval in srcX
+    let lo = 0;
+    let hi = srcX.length - 1;
+
+    if (tx <= Number(srcX[lo])) {
+      result[i] = tx === Number(srcX[lo]) ? Number(srcY[lo]) : Number.NaN;
+      continue;
+    }
+    if (tx >= Number(srcX[hi])) {
+      result[i] = tx === Number(srcX[hi]) ? Number(srcY[hi]) : Number.NaN;
+      continue;
+    }
+
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (Number(srcX[mid]) <= tx) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+
+    const x0 = Number(srcX[lo]);
+    const x1 = Number(srcX[hi]);
+    const t = (tx - x0) / (x1 - x0);
+    result[i] = Number(srcY[lo]) * (1 - t) + Number(srcY[hi]) * t;
+  }
+
+  return result;
 }
 
 function OverlayChart(props: { checkedPaths: string[] }) {
   const { checkedPaths } = props;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { mainColor, auxColors } = useLineColors(containerRef);
 
-  // This component is keyed so it remounts when checkedPaths set changes,
-  // keeping the number of hook calls stable for each mount.
-  const allCurves: CurveData[] = [];
+  // Fetch all NX curve data (stable hook count because component is keyed)
+  const allCurves: NxCurveData[] = [];
   for (let i = 0; i < checkedPaths.length; i++) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    allCurves.push(useNxCurveData(checkedPaths[i], i));
+    allCurves.push(useNxCurveData(checkedPaths[i]));
   }
 
-  const { abscissaDomain, ordinateDomain } = useMemo(() => {
-    let xMin = Infinity;
-    let xMax = -Infinity;
-    let yMin = Infinity;
-    let yMax = -Infinity;
+  // Use the curve with the most points as main (preserves most detail)
+  const mainIndex = allCurves.reduce(
+    (best, curve, i) =>
+      curve.abscissas.length > allCurves[best].abscissas.length ? i : best,
+    0,
+  );
+  const mainCurve = allCurves[mainIndex];
+  const auxCurves = allCurves.filter((_, i) => i !== mainIndex);
 
-    for (const curve of allCurves) {
-      for (let i = 0; i < curve.abscissas.length; i++) {
-        const x = Number(curve.abscissas[i]);
-        const y = Number(curve.ordinates[i]);
-        if (Number.isFinite(x)) {
-          xMin = Math.min(xMin, x);
-          xMax = Math.max(xMax, x);
+  // Build main data as NdArray
+  const mainArray = useMemo(
+    () => ndarray(mainCurve.ordinates, [mainCurve.ordinates.length]),
+    [mainCurve.ordinates],
+  );
+
+  // Build auxiliary NdArrays, resampled to main's x-axis if needed
+  const auxArrays = useMemo(
+    () =>
+      auxCurves.map((aux) => {
+        // Check if x-axes are identical (same length and same values)
+        const sameAxis =
+          aux.abscissas.length === mainCurve.abscissas.length &&
+          aux.abscissas.every(
+            (v, j) => Number(v) === Number(mainCurve.abscissas[j]),
+          );
+
+        if (sameAxis) {
+          return ndarray(aux.ordinates, [aux.ordinates.length]);
         }
-        if (Number.isFinite(y)) {
-          yMin = Math.min(yMin, y);
-          yMax = Math.max(yMax, y);
-        }
-      }
-    }
 
-    return {
-      abscissaDomain: (Number.isFinite(xMin)
-        ? extendDomain([xMin, xMax], 0.01)
-        : [0, 1]) as Domain,
-      ordinateDomain: (Number.isFinite(yMin)
-        ? extendDomain([yMin, yMax], 0.05)
-        : [0, 1]) as Domain,
-    };
-  }, [allCurves]);
+        // Different x-axis — resample to the main curve's x-axis
+        const resampled = resampleToAxis(
+          aux.abscissas,
+          aux.ordinates,
+          mainCurve.abscissas,
+        );
+        return ndarray(resampled, [resampled.length]);
+      }),
+    [auxCurves, mainCurve.abscissas],
+  );
 
-  const [visibleCurves, setVisibleCurves] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(checkedPaths.map((p) => [p, true])),
+  const auxLabels = auxCurves.map((c) => c.label);
+
+  // Visibility state
+  const [mainVisible, setMainVisible] = useState(true);
+  const [auxVisible, setAuxVisible] = useState<boolean[]>(() =>
+    auxCurves.map(() => true),
+  );
+
+  // Domain computation (same as MappedLineVis)
+  const mainDomain = useDomain(mainArray, { scaleType: ScaleType.Linear });
+  const auxDomains = useDomains(auxArrays, {
+    scaleType: ScaleType.Linear,
+  });
+
+  const combinedDomain = useCombinedDomain([
+    mainVisible ? mainDomain : undefined,
+    ...auxDomains.filter((_, i) => auxVisible[i]),
+  ]);
+
+  const abscissaParams = useMemo(
+    () => ({ value: mainCurve.abscissas }),
+    [mainCurve.abscissas],
+  );
+
+  const auxiliaries = useMemo(
+    () =>
+      auxArrays.map((array, i) => ({
+        label: auxLabels[i],
+        array,
+        visible: auxVisible[i],
+      })),
+    [auxArrays, auxLabels, auxVisible],
   );
 
   return (
-    <div className={styles.container}>
+    <div ref={containerRef} className={styles.container}>
       <div className={styles.legend}>
-        {allCurves.map((curve) => (
+        <button
+          type="button"
+          className={styles.legendItem}
+          aria-pressed={mainVisible}
+          onClick={() => setMainVisible((v) => !v)}
+        >
+          <span
+            className={styles.legendColor}
+            style={{
+              backgroundColor: mainColor,
+              opacity: mainVisible ? 1 : 0.3,
+            }}
+          />
+          <span
+            className={styles.legendLabel}
+            style={{ opacity: mainVisible ? 1 : 0.5 }}
+          >
+            {mainCurve.label}
+          </span>
+        </button>
+        {auxCurves.map((curve, i) => (
           <button
             key={curve.path}
             type="button"
             className={styles.legendItem}
-            aria-pressed={visibleCurves[curve.path] !== false}
+            aria-pressed={auxVisible[i]}
             onClick={() => {
-              setVisibleCurves((prev: Record<string, boolean>) => ({
-                ...prev,
-                [curve.path]: !(prev[curve.path] ?? true),
-              }));
+              setAuxVisible((prev) => {
+                const next = [...prev];
+                next[i] = !next[i];
+                return next;
+              });
             }}
           >
             <span
               className={styles.legendColor}
               style={{
-                backgroundColor: curve.color,
-                opacity: visibleCurves[curve.path] !== false ? 1 : 0.3,
+                backgroundColor: auxColors[i % auxColors.length],
+                opacity: auxVisible[i] ? 1 : 0.3,
               }}
             />
             <span
               className={styles.legendLabel}
-              style={{
-                opacity: visibleCurves[curve.path] !== false ? 1 : 0.5,
-              }}
+              style={{ opacity: auxVisible[i] ? 1 : 0.5 }}
             >
               {curve.label}
             </span>
           </button>
         ))}
       </div>
-      <div className={styles.chartArea}>
-        <VisCanvas
-          title="Overlay"
-          abscissaConfig={{
-            visDomain: abscissaDomain,
-            showGrid: true,
-            scaleType: ScaleType.Linear,
-          }}
-          ordinateConfig={{
-            visDomain: ordinateDomain,
-            showGrid: true,
-            scaleType: ScaleType.Linear,
-          }}
-        >
-          <DefaultInteractions />
-          <ResetZoomButton />
-
-          {allCurves.map((curve) => (
-            <DataCurve
-              key={curve.path}
-              abscissas={curve.abscissas}
-              ordinates={curve.ordinates}
-              color={curve.color}
-              visible={visibleCurves[curve.path] !== false}
-            />
-          ))}
-        </VisCanvas>
-      </div>
+      <LineVis
+        className={styles.chartArea}
+        dataArray={mainArray}
+        domain={combinedDomain}
+        scaleType={ScaleType.Linear}
+        abscissaParams={abscissaParams}
+        ordinateLabel="Signal"
+        title="Overlay"
+        auxiliaries={auxiliaries}
+        visible={mainVisible}
+        showGrid
+      >
+        <KeepZoom visKey="overlay" xOnly />
+      </LineVis>
     </div>
   );
 }
