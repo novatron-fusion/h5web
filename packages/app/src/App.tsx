@@ -73,9 +73,6 @@ function App(props: Props) {
   }, []);
 
   const onChangeViewerMode = useCallback((mode: ViewerMode) => {
-    if (mode !== 'overlay') {
-      setCheckedPaths(new Set());
-    }
     setViewerMode(mode);
   }, []);
 
@@ -167,17 +164,21 @@ function App(props: Props) {
                   <Suspense
                     fallback={<EntityLoader isInspecting={isInspecting} />}
                   >
-                    {isOverlaying ? (
-                      <OverlayVisualizer checkedPaths={checkedPathsArray} />
-                    ) : isInspecting ? (
+                    {isInspecting ? (
                       <MetadataViewer
                         path={selectedPath}
                         onSelectPath={onSelectPath}
                       />
-                    ) : (
+                    ) : !isOverlaying ? (
                       <Visualizer path={selectedPath} />
-                    )}
+                    ) : null}
                   </Suspense>
+                  {/* Keep overlay mounted (hidden) so data/chart state survives mode switches */}
+                  <OverlayVisualizer
+                    checkedPaths={checkedPathsArray}
+                    hidden={!isOverlaying}
+                    onRemovePath={onToggleCheckedPath}
+                  />
                 </ErrorBoundary>
               </KeepZoomProvider>
             </DimMappingProvider>

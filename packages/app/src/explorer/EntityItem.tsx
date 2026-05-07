@@ -45,7 +45,9 @@ function EntityItem(props: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const { entitiesStore, attrValuesStore } = useDataContext();
-  const eligible = isOverlaying && isOverlayEligible(entity, entitiesStore, attrValuesStore);
+  // Always evaluate eligibility so results are cached when the tree loads,
+  // not deferred until the user switches to overlay mode.
+  const eligible = isOverlayEligible(entity, entitiesStore, attrValuesStore);
 
   // Group AND (selected OR parent of selected entity)
   const shouldBeExpanded =
@@ -138,7 +140,7 @@ function EntityItem(props: Props) {
         }}
         onKeyDown={handleKeyDown}
       >
-        {eligible && (
+        {isOverlaying && eligible && (
           <input
             className={styles.overlayCheckbox}
             type="checkbox"
