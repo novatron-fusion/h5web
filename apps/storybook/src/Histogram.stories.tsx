@@ -1,11 +1,14 @@
 import { Histogram, ScaleType } from '@h5web/lib';
 import { COLOR_SCALE_TYPES } from '@h5web/shared/vis-utils';
-import { type Meta, type StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 
-const meta = {
+import preview from '../.storybook/preview';
+import CenterTop from './decorators/CenterTop';
+
+const meta = preview.meta({
   title: 'Toolbar/Histogram',
   component: Histogram,
+  decorators: [CenterTop],
   argTypes: {
     scaleType: {
       control: { type: 'inline-radio' },
@@ -14,29 +17,36 @@ const meta = {
     onChangeMin: { control: false },
     onChangeMax: { control: false },
   },
-} satisfies Meta<typeof Histogram>;
+});
 
-export default meta;
-type Story = StoryObj<typeof meta>;
-
-export const Default = {
+export const Default = meta.story({
   render: (args) => {
     const { value, ...otherArgs } = args;
     const [min, setMin] = useState(value[0]);
     const [max, setMax] = useState(value[1]);
 
     return (
-      <>
-        <p style={{ marginTop: 0 }}>
-          Domain: [{min.toFixed(2)}, {max.toFixed(2)}]
-        </p>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '1rem',
+        }}
+      >
         <Histogram
           {...otherArgs}
           value={[min, max]}
           onChangeMin={setMin}
           onChangeMax={setMax}
         />
-      </>
+        <p>
+          Domain:{' '}
+          <code>
+            [{min.toFixed(2)}, {max.toFixed(2)}]
+          </code>
+        </p>
+      </div>
     );
   },
   args: {
@@ -46,46 +56,38 @@ export const Default = {
     bins: [4, 53.5, 103, 152.5, 202, 251.5, 301, 350.5],
     scaleType: ScaleType.Linear,
   },
-} satisfies Story;
+});
 
-export const SmallDataDomain = {
-  ...Default,
+export const SmallDataDomain = Default.extend({
   args: {
-    ...Default.args,
     dataDomain: [100, 300],
   },
-} satisfies Story;
+});
 
-export const WithColorMap = {
-  ...Default,
+export const WithColorMap = Default.extend({
   args: {
-    ...Default.args,
     colorMap: 'Blues',
     invertColorMap: true,
   },
-} satisfies Story;
+});
 
-export const TypedValues = {
-  ...Default,
+export const TypedValues = Default.extend({
   args: {
-    ...Default.args,
     values: new Int32Array([26, 50, 52, 60, 68, 76, 92, 130]),
     bins: new Float32Array([4, 53.5, 103, 152.5, 202, 251.5, 301, 350.5]),
   },
-} satisfies Story;
+});
 
-export const HideLeftAxis = {
-  ...Default,
+export const HideLeftAxis = Default.extend({
   args: {
-    ...Default.args,
     showLeftAxis: false,
   },
-} satisfies Story;
+});
 
-export const NonInteractive = {
+export const NonInteractive = meta.story({
   args: {
-    ...Default.args,
+    ...Default.composed.args,
     onChangeMin: undefined, // explicitely set to `undefined`, as Storybook seems to register default event handlers
     onChangeMax: undefined, // explicitely set to `undefined`, as Storybook seems to register default event handlers
   },
-} satisfies Story;
+});

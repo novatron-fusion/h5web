@@ -1,7 +1,10 @@
 .root {
   box-sizing: border-box;
   background-color: white;
-  font-family: var(--sans-serif);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
+    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 1rem; /* ensures font-size inherits properly in tables and grids */
   line-height: 1.2;
   color: #020402;
 }
@@ -22,17 +25,12 @@
   --secondary-darker: #0e5846;
   --secondary-bg: #d9f4ec;
   --secondary-light-bg: #ecfaf6;
-  --monospace:
-    'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-  --sans-serif:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
-    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   --toolbar-height: 2.875rem;
   --toolbarBtn-height: 2rem;
 }
 
 .root {
-  --h5w-matrix--fontFamily: var(--monospace);
+  --h5w-info--color: var(--secondary-dark);
   --h5w-matrix-cell--bgColorAlt: var(--secondary-light-bg);
   --h5w-matrix-indexCell--bgColor: var(--primary-bg);
   --h5w-matrix-indexCell--bgColorAlt: var(--primary-light-bg);
@@ -63,16 +61,10 @@
   --h5w-slicingSlider-thumb--bgColor: var(--primary-bg);
 }
 
-.root *,
-.root *::before,
-.root *::after {
+:where(.root) *,
+:where(.root) *::before,
+:where(.root) *::after {
   box-sizing: inherit;
-}
-
-.root abbr[title] {
-  cursor: help;
-  border-bottom: 1px dotted;
-  text-decoration: none;
 }
 
 @media (min-width: 50em) {
@@ -174,11 +166,11 @@
 }
 
 .fallback {
-  composes: fallback from global;
+  composes: fallback from './utils.module.css';
 }
 
 .error {
-  composes: error from global;
+  composes: error from './utils.module.css';
   grid-area: vis;
 }
 
@@ -187,7 +179,7 @@
 }
 
 .detailedError {
-  composes: error from global;
+  composes: error from './utils.module.css';
   overflow: auto;
   scrollbar-width: thin;
 }
@@ -201,5 +193,5 @@
 }
 
 .retryBtn {
-  composes: btnClean btnLink from global;
+  composes: btnLink from './utils.module.css';
 }

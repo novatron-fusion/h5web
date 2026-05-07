@@ -1,11 +1,16 @@
 name: Lint & Test
 
 on:
-  workflow_dispatch:
   pull_request: # for PRs from forks
   push:
     branches-ignore:
       - 'update-snapshots'
+  workflow_dispatch:
+    inputs:
+      updateSnapshots:
+        description: 'Update Cypress snapshots'
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     # Skip `pull_request` runs on local PRs for which `push` runs are already triggered
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
 
     steps:
       - name: Checkout 🏷️
@@ -29,11 +34,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     # Skip `pull_request` runs on local PRs for which `push` runs are already triggered
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork
-
-    container:
-      image: mcr.microsoft.com/playwright:v1.58.1-noble
-      options: -u 1001
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
 
     steps:
       - name: Checkout 🏷️
@@ -41,6 +42,16 @@ jobs:
 
       - name: Install ⚙️
         uses: ./.github/actions/install
+
+      - name: Restore Playwright cache 📌
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-
+
+      - name: Install Playwright browser ⚙️
+        run: pnpm exec playwright install chromium
 
       - name: Set up Python 🕹️
         id: setup-python
@@ -53,7 +64,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.local
-          key: poetry-1 # increment to reset cache
+          key: poetry-5 # increment to reset cache
 
       - name: Install Poetry 📜
         if: steps.poetry.outputs.cache-hit != 'true'
@@ -77,22 +88,19 @@ jobs:
         run: pnpm support:h5grove & pnpm wait-on http://localhost:8888 -t 1m
 
       - name: Test 👓
-        run: pnpm test --browser.headless
-        env:
-          VITE_TEST_BROWSER: chromium
-          VITE_TEST_WITH_SCREENSHOTS: true
+        run: pnpm test:headless
 
       - name: Upload debug screenshots on failure 🖼️
         uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: vitest
-          path: packages/app/src/__tests__/__screenshots__/.attachments
+          path: packages/app/src/__tests__/__screenshots__/
 
   packages:
     runs-on: ubuntu-latest
     # Skip `pull_request` runs on local PRs for which `push` runs are already triggered
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
 
     steps:
       - name: Checkout 🏷️
@@ -107,7 +115,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     # Skip `pull_request` runs on local PRs for which `push` runs are already triggered
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.fork
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
 
     steps:
       - name: Checkout 🏷️
@@ -123,7 +131,7 @@ jobs:
         run: pnpm serve & pnpm wait-on http://localhost:5173 -t 1m
 
       - name: Run Cypress 🌳
-        run: pnpm cypress:run --env requireSnapshots=true --expose takeSnapshots=true
+        run: pnpm cypress:run --env ${{ inputs.updateSnapshots && 'updateSnapshots=true' || 'requireSnapshots=true' }}  --expose takeSnapshots=true
 
       - name: Upload debug screenshots and diffs on failure 🖼️
         uses: actions/upload-artifact@v7
@@ -134,3 +142,14 @@ jobs:
             cypress/debug/
             cypress/snapshots/**/__diff_output__/
             cypress/snapshots/**/__received_output__/
+
+      - name: Open PR to update reference snapshots 🎁
+        uses: peter-evans/create-pull-request@v8
+        if: ${{ inputs.updateSnapshots }}
+        with:
+          token: ${{ secrets.USER_TOKEN }}
+          branch: update-snapshots
+          delete-branch: true
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com> # https://github.com/peter-evans/create-pull-request/blob/v8/action.yml#L27
+          title: 'Update Cypress reference snapshots'
+          commit-message: 'Update Cypress reference snapshots'

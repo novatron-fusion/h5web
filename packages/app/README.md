@@ -9,7 +9,7 @@ to visualize and explore data. It consists of two main packages:
 - [`@h5web/lib`](https://www.npmjs.com/package/@h5web/lib): visualization
   components built with
   [react-three-fiber](https://github.com/react-spring/react-three-fiber).
-- **[`@h5web/app`](https://www.npmjs.com/package/@h5web/app): a stand-alone,
+- **[`@h5web/app`](https://www.npmjs.com/package/@h5web/app): a standalone,
   web-based viewer to explore HDF5 files (this library)**.
 
 `@h5web/app` exposes the HDF5 viewer component `App`, as well as the following
@@ -60,14 +60,12 @@ The following code sandboxes demonstrate how to set up and use `@h5web/app` with
 various front-end development stacks:
 
 - [Vite](https://codesandbox.io/p/sandbox/h5webapp-vite-5c204?file=%2Fsrc%2FMyApp.tsx)
-- [Create React App v5](https://codesandbox.io/p/sandbox/h5webapp-cra-v5-bzmbh1?file=%2Fsrc%2FMyApp.tsx)
-  (deprecated)
 
 ### Browser support
 
-H5Web works out of the box on **Firefox 78 ESR**. Support for Firefox 68 ESR is
-possible by polyfilling the `ResizeObserver` API. Older versions of Firefox are
-not supported.
+H5Web works out of the box on **Firefox 102 ESR**. Support for older versions
+might be achieved by polyfilling specific web platform features like
+[`Object.hasOwn()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/hasOwn).
 
 ## API reference
 
@@ -88,7 +86,7 @@ For `App` to work, it must be wrapped in a data provider:
 Whether the viewer should start with the sidebar open. The sidebar contains the
 explorer and search panels. Defaults to `true`. Pass `false` to hide the sidebar
 on initial render, thus giving more space to the visualization. This is useful
-when H5Web is embeded inside another app.
+when H5Web is embedded inside another app.
 
 ```tsx
 <App sidebarOpen={false} />
@@ -137,7 +135,7 @@ form instead.
 #### `disableDarkMode?: boolean` (optional)
 
 By default, the viewer follows your browser's and/or operating system's dark
-mode setting. This prop disables this beahviour by forcing the viewer into light
+mode setting. This prop disables this behavior by forcing the viewer into light
 mode.
 
 ```tsx
@@ -602,11 +600,55 @@ once, it's important to prefetch every entity/value first so the requests are
 done in parallel. `useDatasets` and `useValues` do this automatically, but not
 `useEntity` and `useValue`:
 
-```tsx
+```ts
 const { valuesStore } = useDataContext();
 valuesStore.prefetch(abscissasDataset);
 valuesStore.prefetch(ordinatesDataset);
 
 const abscissas = useValue(abscissasDataset);
 const ordinates = useValue(ordinatesDataset);
+```
+
+To work with HDF5 attributes, retrieve an entity object with `useEntity` or
+`useDatasets` and pass it to `findAttribute`. Then, you can check or assert its
+type and shape and retrieve its value with `getAttributeValue`:
+
+```ts
+const { attrValuesStore } = useDataContext();
+const entity = useEntity('/arrays/twoD'); // ProvidedEntity
+
+// If you just want to know whether the attribute is present
+const hasAttr = hasAttribute(entity, 'my_attr'); // boolean
+
+// Otherwise, find it
+const attribute = findAttribute(entity, 'my_attr'); // Attribute | undefined
+
+// If the attribute must be present and have the expected shape and type, use type assertions
+assertDefined(attribute);
+assertArrayShape(attribute);
+assertStringType(attribute); // now `Attribute & HasShape<ArrayShape> & HasType<StringType>`
+
+// Otherwise, use type guards and an `if` block
+if (
+  isDefined(attribute) &&
+  hasArrayShape(attribute) &&
+  hasStringType(attribute)
+) {
+  const someStr = getAttributeValue(entity, attribute, attrValuesStore); // string
+  someStr.startWith('foo'); // `someStr` is fully type-checked; no need to use `typeof`
+}
+```
+
+With scalar string and numeric attributes, use `findScalarStrAttr` and
+`findScalarNumAttr` for convenience:
+
+```ts
+const strAttr = findScalarStrAttr(entity, 'my_str_attr');
+const numAttr = findScalarNumAttr(entity, 'my_num_attr');
+
+assertDefined(strAttr); // or `isDefined` + `if` block
+assertDefined(numAttr);
+
+const str = getAttributeValue(entity, strAttr, attrValuesStore); // string
+const num = getAttributeValue(entity, numAttr, attrValuesStore); // number | bigint
 ```

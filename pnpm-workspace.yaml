@@ -15,13 +15,29 @@ onlyBuiltDependencies:
   - 'cypress'
   - 'esbuild'
 
+# Manage peer dependencies explicitly and predictibly
+strictPeerDependencies: true
+resolvePeersFromWorkspaceRoot: false
+
+# Fail install if any dependency has unapproved build scripts
+strictDepBuilds: true
+allowBuilds:
+  cypress: true
+  esbuild: true
+
 # Hoist `@types` packages to root `node_modules` to fix type error in linting config
 # https://github.com/silx-kit/h5web/pull/1787
 publicHoistPattern:
   - '@types/*'
 
-# Check that `node_modules` is up to date before running scripts
-# verifyDepsBeforeRun: 'error'
+# Only install packages that are at least 2 days old
+minimumReleaseAge: 2880
+minimumReleaseAgeExclude:
+  - '@h5web/*'
+  - '@esrf/eslint-config'
+
+# Run install automatically if anything is out of date before running a script
+verifyDepsBeforeRun: 'install'
 
 # Every project must have these scripts in their `package.json`
 requiredScripts:

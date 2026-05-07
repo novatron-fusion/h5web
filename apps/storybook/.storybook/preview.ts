@@ -1,11 +1,16 @@
 import '../src/styles.css';
 
-import { type Preview } from '@storybook/react-vite';
+import addonDocs from '@storybook/addon-docs';
+import addonLinks from '@storybook/addon-links';
+import { definePreview } from '@storybook/react-vite';
 
-const preview: Preview = {
+export default definePreview({
   tags: ['autodocs'],
+  addons: [addonDocs(), addonLinks()],
   parameters: {
     actions: { argTypesRegex: '^on[A-Z].*' },
+    controls: { sort: 'requiredFirst', disableSaveFromUI: true },
+    layout: 'fullscreen',
     options: {
       storySort: {
         order: [
@@ -38,6 +43,4 @@ const preview: Preview = {
       },
     },
   },
-};
-
-export default preview;
+});

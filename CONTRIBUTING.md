@@ -216,46 +216,37 @@ another React component:
 - `pnpm serve:storybook` - serve the built Storybook at http://localhost:6006
 - `pnpm packages` - build packages (cf. details below)
 
+> Locally, `pnpm build` also generates a bundle analysis report with a tool
+> called [Sonda](https://sonda.dev/). The report opens automatically at the end
+> of the build and is stored under `apps/demo/.sonda`.
+
 ### Package builds
 
 The build process of `@h5web/lib` works as follows:
 
-1. First, Vite builds the JS bundles (ESM and CommonJS) in library mode starting
-   from the package's entrypoint: `src/index.ts`. The bundles are placed in the
-   output `dist` directory and referenced from `package.json`.
+1. First, we use Vite to build the JS bundle of the library starting from the
+   `src/index.ts` entrypoint. The `dist/index.js` bundle is then referenced from
+   `package.json`. Vite also generates `dist/style.css`, which contains the
+   compiled CSS modules that Vite comes across while building the React
+   components.
 
-   The JS build also generates a file called `style.css` in the `dist` folder
-   that contains the compiled CSS modules that Vite comes across while building
-   the React components. These styles are called "local" styles.
+2. Second, we run `build:dts` to generate type declarations for TypeScript
+   consumers. This is a two step process: first we generate type declarations
+   for all TS files in the `dist-ts` folder with `tsc`, then we use Rollup to
+   merge all the declarations into a single file: `dist/index.d.ts`, which is
+   referenced from `package.json`. Note that since `@h5web/shared` is not a
+   published package, it cannot be marked as an external dependency; its types
+   must therefore be inlined into `dist/index.d.ts`, so we make sure to tell
+   Rollup where to find them.
 
-2. Second, we run two scripts in parallel: `build:css` and `build:dts`.
-   - The job of `build:css` is to build the package's global styles and
-     concatenate them with the local styles compiled at the first step. To do
-     so, we run Vite again but with a different config: `vite.styles.config.js`,
-     and a different entrypoint: `src/styles.ts`. The output files are placed in
-     a temporary folder: `dist/temp`. We then concatenate `dist/temp/styles.css`
-     (the global styles) and `dist/<app|lib>.css` (the local styles) and output
-     the result to `dist/styles.css`, which is the stylesheet referenced from
-     `package.json` that consumers need to import.
-   - The job of `build:dts` is to generate type declarations for package
-     consumers who use TypeScript. This is a two step process: first we generate
-     type declarations for all TS files in the `dist-ts` folder with `tsc`, then
-     we use Rollup to merge all the declarations into a single file:
-     `dist/index.d.ts`, which is referenced from `package.json`. Note that since
-     `@h5web/shared` is not a published package, it cannot be marked as an
-     external dependency; its types must therefore be inlined into
-     `dist/index.d.ts`, so we make sure to tell Rollup where to find them.
+The build process of `@h5web/app` is the same with one exception: after Vite
+generates the styles of the app package, we concatenate them with the styles of
+the lib package so that consumers can just import a single stylesheet. This is
+taken care of by the `build:css` script thanks to a dedicated Vite config
+(`vite.styles.config.js`) and entrypoint (`src/lib-styles.ts`).
 
-The build process of `@h5web/app` is the same with one exception: in addition to
-importing the package's global styles, `src/styles.ts` also imports the `lib`
-package's distributed styles - i.e. the output of the lib's `build:css` script.
-The lib's distributed styles include both its global _and_ local styles. This
-allows us to provide a single CSS bundle for consumers of `@h5web/app` to
-import.
-
-The build process of`@h5web/h5wasm` is also the same as the lib's, but since the
-package does not include any styles, `vite build` does not generate a
-`style.css` file and there's no `build:css` script.
+The build process of`@h5web/h5wasm` is also the same, but since the package does
+not include any styles, no `styles.css` file is generated.
 
 Finally, since `@h5web/shared` is not a published package, it does not need to
 be built with Vite. However, its types do need to be built with `tsc` so that
@@ -276,8 +267,6 @@ other packages can inline them in their own `dist/index.d.ts`.
   projects
 - `pnpm lint:root:tsc` - type-check files at the root of the monorepo
 - `pnpm lint:cypress:tsc` - type-check the `cypress` folder
-- `pnpm --filter @h5web/<lib|app> analyze` - analyze a package's bundle (run
-  only after building the package)
 - `pnpm --filter storybook exec storybook doctor` - diagnose problems with
   Storybook installation
 
@@ -297,7 +286,7 @@ install the recommended extensions.
 ## Testing
 
 - `pnpm test` - run unit, browser and providers tests with
-  [Vitest](https://vitest.dev/) in watch mode (or once on the CI)
+  [Vitest](https://vitest.dev/) in watch mode (or once when on the CI)
 
 > Vitest is able to run on the entire monorepo thanks to the
 > [`projects` configuration](https://vitest.dev/guide/workspace.html) in the
@@ -312,13 +301,17 @@ install the recommended extensions.
 > h5grove support server must be running in a separate terminal; see
 > `pnpm support:*` scripts and [_Providers tests_](#providers-tests) section.
 
-- `pnpm test run` - run tests once (same as `pnpm test` on the CI)
-- `pnpm test <filter>` - run tests matching the given filter
-- `pnpm test --project <project-name>` - run Vitest on a specific project
-- `pnpm test --coverage` measure coverage (requires
-  `VITE_TEST_BROWSER=chromium`)
-- `pnpm test --ui [--coverage]` - open Vitest UI to monitor test runs and check
-  coverage results
+- `pnpm test:headless` - use headless mode for browser tests, typically in the
+  CI
+- `pnpm test[:headless] run` - run unit and browser tests once
+- `pnpm test[:headless] [run] <filter>` - run tests matching the given filter
+- `pnpm test[:headless] --project <project-name>` - run Vitest on a specific
+  project
+- `pnpm test[:headless] --coverage` measure coverage (environment variable
+  `VITE_TEST_BROWSER` must be set to `chromium` in `.env.test.local` and this
+  browser must be installed with Playwright)
+- `pnpm test[:headless] --ui [--coverage]` - run tests in Vitest UI (with or
+  without coverage)
 - `pnpm support:setup` - create/update Poetry environments required for
   [testing the providers](#providers-tests)
 - `pnpm support:sample` - create `sample.h5`
@@ -470,48 +463,43 @@ rendering of the app depends on the GPU. For this reason, visual regression
 tests are run only on the CI. This is done by running cypress with the
 `takeSnapshots` feature flag: `pnpm cypress:run --expose takeSnapshots=true`.
 
-> Locally, we run the tests without snapshots in Firefox, since it's our main
-> target browser. On the CI, Firefox takes flaky snapshots, so we have to run
-> the tests in Electron instead.
-
 Visual regression tests may fail in the CI, either expectedly (e.g. when
 implementing a new feature) or unexpectedly (when detecting a regression). When
 this happens, the diff images and debug screenshots that Cypress generates are
-uploaded as artifacts of the workflow, which can be downloaded and reviewed.
+uploaded as artifacts of the
+[_Lint & Test_ workflow](https://github.com/silx-kit/h5web/actions/workflows/lint-test.yml),
+which can be downloaded and reviewed.
 
 If the visual regressions are expected, the version-controlled reference
-snapshots can be updated by posting a comment in the Pull Request with this
-exact text: `/approve`. This triggers the _Approve snapshots_ workflow, which
-runs Cypress again but this time telling it to update the reference snapshots
-when it finds differences and to pass the tests. Once Cypress has updated the
-reference snapshots, the workflow automatically opens a PR to merge the new
-and/or updated snapshots into the working branch. After this PR is merged, the
-visual regression tests in the working branch succeed and the branch can be
-merged into `main`.
+snapshots can be updated by manually running the _Lint & Test_ workflow on the
+working branch and by ticking the "Update Cypress snapshots" checkbox. Once
+Cypress has updated the reference snapshots, the workflow automatically opens a
+PR to merge the new and/or updated snapshots into the working branch. After this
+PR is merged, the visual regression tests in the working branch succeed and the
+branch can be merged into `main`.
 
-Here is the summarised workflow (also described with screenshots in
-[PR #306](https://github.com/silx-kit/h5web/pull/306)):
+Here is the summarised workflow:
 
-1. Push your working branch and open a PR.
+1. Push your working branch but don't open a PR yet.
 2. If the `e2e` job of the _Lint & Test_ CI workflow fails, check out the logs.
 3. If the fail is caused by a visual regression (i.e. if a test fails on a
    `cy.matchImageSnapshot()` call), download the workflow's artifacts.
 4. Review the snapshot diffs. If the visual regression is unexpected: fix the
    bug, push it and start from step 2 again. If the visual regression is
    expected: continue to step 5.
-5. In the PR, post a comment with `/approve`.
-6. Go to the _Actions_ page and wait for the _Approve snapshots_ workflow to
-   complete.
-7. Go to the newly opened PR titled _Update Cypress reference snapshots_.
-8. Review the new reference snapshots once more and merge the PR.
-9. Go back to your main PR and wait for the jobs of the _Lint & Test_ workflow
-   to succeed.
+5. Run the
+   [_Lint & Test_ workflow](https://github.com/silx-kit/h5web/actions/workflows/lint-test.yml)
+   manually on your working branch, making sure to tick the "Update Cypress
+   snapshots" checkbox.
+6. Wait for the workflow to complete, then go to the newly opened PR titled
+   _Update Cypress reference snapshots_.
+7. Review the new reference snapshots once more and merge the PR (ideally with a
+   rebase).
+8. Confirm that the _Lint & Test_ workflow now succeeds on your working branch,
+   then open a PR.
 
-> It is also possible to download the artifacts from the CI and manually
-> commit/push the updated snapshots without going through the steps above. This
-> may be the best option if, for instance, the visual diffing tests fail on the
-> `main` branch after a commit is pushed to it directly or after a PR is
-> forcefully merged.
+> After step 4, it's also possible to commit/push the updated snapshots manually
+> instead of going through steps 5 to 7.
 
 ## Deployment
 
@@ -546,17 +534,8 @@ To release a new version and publish the packages to NPM:
 > workflows on the CI, which builds and publishes the packages to NPM (with
 > `pnpm -r publish`) and deploys the Storybook site.
 >
-> A few things happen when `pnpm publish` runs for each package:
->
-> 1. First, it triggers a `prepack` script that removes the `type` field from
->    the package's `package.json`. The reason for this workaround is explained
->    in [#1219](https://github.com/silx-kit/h5web/issues/1219).
-> 2. Then, pnpm modifies `package.json` further by merging in the content of the
->    [`publishConfig` field](https://pnpm.io/package_json#publishconfig).
-> 3. Finally, the package gets published to NPM. Note that it's possible to
->    publish to a local registry for testing purposes (e.g.
->    [Verdaccio](https://verdaccio.org/)) by overriding NPM's default
->    [`registry` configuration](https://docs.npmjs.com/cli/v9/using-npm/registry).
+> Note that `pnpm publish` modifies `package.json` by merging in the content of
+> the [`publishConfig` field](https://pnpm.io/package_json#publishconfig).
 
 Once the CI workflows have run successfully:
 
@@ -607,7 +586,3 @@ follow these steps:
 1. Navigate to the project in which you want to install and test the package.
 1. Install the tarball with the project's package manager (e.g.
    `pnpm add <path-to-tarball>`).
-
-> Like `pnpm publish`, `pnpm pack` runs the package's `prepack` script, which
-> removes `"type": "module"` from `package.json`, so don't forget to revert this
-> change when you're done.

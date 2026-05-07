@@ -27,7 +27,7 @@ import Visualizer from './visualizer/Visualizer';
 export type ViewerMode = 'display' | 'inspect' | 'overlay';
 
 const SIDEBAR_ID = 'h5w-sidebar';
-export const MAIN_AREA_ID = 'h5w-main-area';
+const MAIN_AREA_ID = 'h5w-main-area';
 const RESIZE_TARGET_MIN_SIZE = { coarse: 6, fine: 6 }; // match CSS width (.splitter::before)
 
 interface Props {

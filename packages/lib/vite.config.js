@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import react from '@vitejs/plugin-react-swc';
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { patchCssModules } from 'vite-css-modules';
 
@@ -22,13 +22,12 @@ export default defineConfig({
       entry: path.resolve('src/index.ts'),
       formats: ['es'],
       fileName: 'index',
-      cssFileName: 'lib',
+      cssFileName: 'styles',
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [...externals].map(
         (dep) => new RegExp(String.raw`^${dep}($|\/)`, 'u'), // e.g. externalize `react-icons/fi`
       ),
-      output: { interop: 'compat' }, // for compatibility with Jest in consumer projects (default changed in Rollup 3/Vite 4: https://rollupjs.org/migration/#changed-defaults)
     },
     sourcemap: true,
   },
