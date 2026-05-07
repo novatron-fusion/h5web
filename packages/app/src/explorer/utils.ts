@@ -21,7 +21,10 @@ import { RxDotFilled } from 'react-icons/rx';
 import { TbCube, TbTimeline } from 'react-icons/tb';
 
 import { type AttrValuesStore, type EntitiesStore } from '../providers/models';
-import { isNxDataGroup } from '../vis-packs/nexus/utils';
+import {
+  findSignalDataset,
+  isNxDataGroup,
+} from '../vis-packs/nexus/utils';
 
 const DATASET_ICONS = [RxDotFilled, TbTimeline, PiGridFourBold, TbCube];
 
@@ -125,7 +128,11 @@ export function isOverlayEligible(
     if (!isGroup(fullEntity) || !('children' in fullEntity)) {
       return false;
     }
-    return isNxDataGroup(fullEntity, attrValuesStore);
+    if (!isNxDataGroup(fullEntity, attrValuesStore)) {
+      return false;
+    }
+    const signalDataset = findSignalDataset(fullEntity, attrValuesStore);
+    return signalDataset.shape.dims.length === 1;
   } catch {
     return false;
   }
