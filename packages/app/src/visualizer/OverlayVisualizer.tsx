@@ -1,16 +1,17 @@
-import {
-  KeepZoom,
-  LineVis,
-  ScaleType,
-  useCombinedDomain,
-  useDomain,
-  useDomains,
-} from '@h5web/lib';
+import 'uplot/dist/uPlot.min.css';
+
 import { assertGroup } from '@h5web/shared/guards';
 import { type NumArray } from '@h5web/shared/vis-models';
-import ndarray, { type NdArray } from 'ndarray';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+} from 'react';
 import { FiRefreshCw } from 'react-icons/fi';
+import uPlot from 'uplot';
 
 import { useEntity, useValue } from '../hooks';
 import { toNumArray } from '../vis-packs/core/utils';
@@ -19,51 +20,22 @@ import { useNxData, usePrefetchNxValues } from '../vis-packs/nexus/hooks';
 import styles from './OverlayVisualizer.module.css';
 import visualizerStyles from './Visualizer.module.css';
 
-// Fallback defaults (must match LineVis.module.css)
-const DEFAULT_MAIN_COLOR = 'darkblue';
-const DEFAULT_AUX_COLORS = [
+const COLORS = [
+  'darkblue',
   'orangered',
   'forestgreen',
   'red',
   'mediumorchid',
   'olive',
+  'teal',
+  'sienna',
 ];
-
-/**
- * Read the resolved line colors from the DOM via CSS custom properties.
- * This ensures the legend stays in sync with LineVis, even when the app
- * overrides --h5w-line--color / --h5w-line--colorAux (e.g. dark-mode).
- */
-function useLineColors(ref: React.RefObject<HTMLElement | null>) {
-  const [mainColor, setMainColor] = useState(DEFAULT_MAIN_COLOR);
-  const [auxColors, setAuxColors] = useState(DEFAULT_AUX_COLORS);
-
-  // Read after mount when the ref is attached
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return;
-    }
-
-    const cs = globalThis.getComputedStyle(el);
-
-    const main = cs.getPropertyValue('--h5w-line--color').trim();
-    if (main) {
-      setMainColor(main);
-    }
-
-    const aux = cs.getPropertyValue('--h5w-line--colorAux').trim();
-    if (aux) {
-      setAuxColors(aux.split(',').map((c) => c.trim()));
-    }
-  }, [ref]);
-
-  return { mainColor, auxColors };
-}
 
 interface NxCurveData {
   path: string;
   label: string;
+  unit: string | undefined;
+  xLabel: string | undefined;
   abscissas: NumArray;
   ordinates: NumArray;
 }
@@ -88,7 +60,7 @@ function OverlayVisualizer(props: Props) {
 
   // Key on sorted paths so the component remounts when the set of paths changes.
   // This keeps the hook call count stable inside OverlayChart.
-  const key = checkedPaths.slice().sort().join('\n');
+  const key = [...checkedPaths].sort().join('\n');
 
   return (
     <Suspense
@@ -124,218 +96,323 @@ function useNxCurveData(path: string): NxCurveData {
   const xAxisDef = axisDefs[axisDefs.length - 1];
   const xAxisValue = useValue(xAxisDef?.dataset);
 
-  const ordinates = toNumArray(signal)!;
+  const ordinates = toNumArray(signal);
   const abscissas: NumArray = xAxisValue
-    ? toNumArray(xAxisValue)!
+    ? toNumArray(xAxisValue)
     : Array.from({ length: ordinates.length }, (_, i) => i);
 
   return {
     path,
     label: signalDef.label || path.split('/').pop() || path,
+    unit: signalDef.unit,
+    xLabel: xAxisDef?.label,
     abscissas,
     ordinates,
   };
 }
 
 /**
- * Resample `srcY` (defined at `srcX`) onto `targetX` using linear interpolation.
- * Points outside the source range are set to NaN.
+ * Group curves by their signal unit. Returns an ordered list of unique unit
+ * strings and a map from unit to the curves that belong to it.
  */
-function resampleToAxis(
-  srcX: NumArray,
-  srcY: NumArray,
-  targetX: NumArray,
-): number[] {
-  const result = new Array<number>(targetX.length);
+function groupByUnit(curves: NxCurveData[]): {
+  unitOrder: string[];
+  unitMap: Map<string, NxCurveData[]>;
+} {
+  const unitMap = new Map<string, NxCurveData[]>();
 
-  for (let i = 0; i < targetX.length; i++) {
-    const tx = Number(targetX[i]);
-
-    // Binary search for the interval in srcX
-    let lo = 0;
-    let hi = srcX.length - 1;
-
-    if (tx <= Number(srcX[lo])) {
-      result[i] = tx === Number(srcX[lo]) ? Number(srcY[lo]) : Number.NaN;
-      continue;
-    }
-    if (tx >= Number(srcX[hi])) {
-      result[i] = tx === Number(srcX[hi]) ? Number(srcY[hi]) : Number.NaN;
-      continue;
-    }
-
-    while (hi - lo > 1) {
-      const mid = (lo + hi) >> 1;
-      if (Number(srcX[mid]) <= tx) {
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-
-    const x0 = Number(srcX[lo]);
-    const x1 = Number(srcX[hi]);
-    const t = (tx - x0) / (x1 - x0);
-    result[i] = Number(srcY[lo]) * (1 - t) + Number(srcY[hi]) * t;
+  for (const curve of curves) {
+    const key = curve.unit ?? '';
+    const group = unitMap.get(key) ?? [];
+    group.push(curve);
+    unitMap.set(key, group);
   }
 
-  return result;
+  return { unitOrder: [...unitMap.keys()], unitMap };
 }
 
-function OverlayChart(props: { checkedPaths: string[] }) {
-  const { checkedPaths } = props;
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { mainColor, auxColors } = useLineColors(containerRef);
-
-  // Fetch all NX curve data (stable hook count because component is keyed)
-  const allCurves: NxCurveData[] = [];
-  for (let i = 0; i < checkedPaths.length; i++) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    allCurves.push(useNxCurveData(checkedPaths[i]));
+/**
+ * Build uPlot-compatible aligned data from multiple curves.
+ *
+ * Uses `uPlot.join()` to outer-join all curves onto a common x-axis.
+ * Each curve is passed as its own small table [xs, ys] so that curves
+ * with different x-ranges/sampling are correctly aligned.
+ */
+function buildAlignedData(curves: NxCurveData[]): uPlot.AlignedData {
+  if (curves.length === 0) {
+    return [[]];
   }
 
-  // Use the curve with the most points as main (preserves most detail)
-  const mainIndex = allCurves.reduce(
-    (best, curve, i) =>
-      curve.abscissas.length > allCurves[best].abscissas.length ? i : best,
-    0,
-  );
-  const mainCurve = allCurves[mainIndex];
-  const auxCurves = allCurves.filter((_, i) => i !== mainIndex);
-
-  // Build main data as NdArray
-  const mainArray = useMemo(
-    () => ndarray(mainCurve.ordinates, [mainCurve.ordinates.length]),
-    [mainCurve.ordinates],
-  );
-
-  // Build auxiliary NdArrays, resampled to main's x-axis if needed
-  const auxArrays = useMemo(
-    () =>
-      auxCurves.map((aux) => {
-        // Check if x-axes are identical (same length and same values)
-        const sameAxis =
-          aux.abscissas.length === mainCurve.abscissas.length &&
-          aux.abscissas.every(
-            (v, j) => Number(v) === Number(mainCurve.abscissas[j]),
-          );
-
-        if (sameAxis) {
-          return ndarray(aux.ordinates, [aux.ordinates.length]);
-        }
-
-        // Different x-axis — resample to the main curve's x-axis
-        const resampled = resampleToAxis(
-          aux.abscissas,
-          aux.ordinates,
-          mainCurve.abscissas,
-        );
-        return ndarray(resampled, [resampled.length]);
-      }),
-    [auxCurves, mainCurve.abscissas],
-  );
-
-  const auxLabels = auxCurves.map((c) => c.label);
-
-  // Visibility state
-  const [mainVisible, setMainVisible] = useState(true);
-  const [auxVisible, setAuxVisible] = useState<boolean[]>(() =>
-    auxCurves.map(() => true),
-  );
-
-  // Domain computation (same as MappedLineVis)
-  const mainDomain = useDomain(mainArray, { scaleType: ScaleType.Linear });
-  const auxDomains = useDomains(auxArrays, {
-    scaleType: ScaleType.Linear,
-  });
-
-  const combinedDomain = useCombinedDomain([
-    mainVisible ? mainDomain : undefined,
-    ...auxDomains.filter((_, i) => auxVisible[i]),
+  const tables: uPlot.AlignedData[] = curves.map((curve) => [
+    Array.from(curve.abscissas, Number),
+    Array.from(curve.ordinates, Number),
   ]);
 
-  const abscissaParams = useMemo(
-    () => ({ value: mainCurve.abscissas }),
-    [mainCurve.abscissas],
+  return uPlot.join(tables);
+}
+
+function getCurveColor(index: number): string {
+  return COLORS[index % COLORS.length];
+}
+
+/**
+ * Build legend item descriptors grouped by unit.
+ * Must be pure (no closure over mutable index) to satisfy lint.
+ */
+function buildLegendGroups(
+  unitOrder: string[],
+  unitMap: Map<string, NxCurveData[]>,
+) {
+  const groups: {
+    unit: string;
+    items: { seriesIdx: number; label: string; color: string }[];
+  }[] = [];
+
+  let globalIdx = 0;
+  for (const unit of unitOrder) {
+    const curves = unitMap.get(unit) ?? [];
+    const items: { seriesIdx: number; label: string; color: string }[] = [];
+
+    for (const curve of curves) {
+      items.push({
+        seriesIdx: globalIdx + 1, // +1 because series[0] is x-axis in uPlot
+        label: curve.label,
+        color: getCurveColor(globalIdx),
+      });
+      globalIdx++;
+    }
+
+    groups.push({ unit, items });
+  }
+
+  return groups;
+}
+
+// eslint-disable-next-line react/no-multi-comp -- OverlayChart is tightly coupled to OverlayVisualizer
+function OverlayChart(props: { checkedPaths: string[] }) {
+  const { checkedPaths } = props;
+
+  // Fetch all NX curve data.
+  // The hook call count is stable because the parent component is keyed
+  // on the sorted checkedPaths, forcing a full remount when the set changes.
+  const curves: NxCurveData[] = [];
+  for (const path of checkedPaths) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    curves.push(useNxCurveData(path));
+  }
+
+  // Wrap in useMemo so downstream hooks get a stable reference.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are the curve values, not the array identity
+  const stableCurves = useMemo(() => curves, curves);
+
+  const chartRef = useRef<HTMLDivElement>(null);
+  const uPlotRef = useRef<uPlot | null>(null);
+
+  // Force-render trigger so the legend re-reads uPlot series visibility
+  const [, forceRender] = useReducer((x: number) => x + 1, 0);
+
+  // Group curves by unit for multi-axis support
+  const { unitOrder, unitMap } = useMemo(
+    () => groupByUnit(stableCurves),
+    [stableCurves],
   );
 
-  const auxiliaries = useMemo(
-    () =>
-      auxArrays.map((array, i) => ({
-        label: auxLabels[i],
-        array,
-        visible: auxVisible[i],
-      })),
-    [auxArrays, auxLabels, auxVisible],
+  // Build aligned data for uPlot
+  const alignedData = useMemo(
+    () => buildAlignedData(stableCurves),
+    [stableCurves],
+  );
+
+  // Determine x-axis label from the first curve that has one
+  const xLabel = useMemo(
+    () => stableCurves.find((c) => c.xLabel)?.xLabel,
+    [stableCurves],
+  );
+
+  // Build the flat color list matching series order
+  const curveColors = useMemo(
+    () => stableCurves.map((_, i) => getCurveColor(i)),
+    [stableCurves],
+  );
+
+  // Scale key for each unit: first unit -> 'y' (left), others -> 'y2' (right)
+  const scaleKeyForUnit = useCallback(
+    (unit: string) => {
+      const idx = unitOrder.indexOf(unit);
+      return idx <= 0 ? 'y' : 'y2';
+    },
+    [unitOrder],
+  );
+
+  // Build uPlot options
+  const opts = useMemo((): uPlot.Options => {
+    const series: uPlot.Series[] = [{}]; // first entry is x-axis
+
+    for (const [i, curve] of stableCurves.entries()) {
+      const unit = curve.unit ?? '';
+      series.push({
+        label: curve.label,
+        stroke: curveColors[i],
+        width: 2,
+        scale: scaleKeyForUnit(unit),
+      });
+    }
+
+    const scales: uPlot.Scales = {
+      x: { time: false },
+      y: { auto: true },
+    };
+
+    if (unitOrder.length > 1) {
+      scales.y2 = { auto: true };
+    }
+
+    const axes: uPlot.Axis[] = [
+      {
+        scale: 'x',
+        label: xLabel,
+        size: xLabel ? 50 : 40,
+        gap: 5,
+      },
+      {
+        scale: 'y',
+        side: 3,
+        label: unitOrder[0] || undefined,
+        size: unitOrder[0] ? 70 : 50,
+        gap: 5,
+        grid: { show: true },
+      },
+    ];
+
+    if (unitOrder.length > 1) {
+      const secondaryLabels = unitOrder.slice(1);
+      const rightLabel = secondaryLabels.join(', ');
+
+      axes.push({
+        scale: 'y2',
+        side: 1,
+        label: rightLabel || undefined,
+        size: rightLabel ? 70 : 50,
+        gap: 5,
+        grid: { show: false },
+      });
+    }
+
+    return {
+      width: 800,
+      height: 400,
+      series,
+      scales,
+      axes,
+      legend: { show: false },
+      cursor: {
+        drag: { x: true, y: false, setScale: true },
+      },
+    };
+  }, [stableCurves, curveColors, scaleKeyForUnit, unitOrder, xLabel]);
+
+  // Create / recreate uPlot instance when options or data change
+  useEffect(() => {
+    const container = chartRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const o = { ...opts, width: rect.width, height: rect.height };
+
+    // eslint-disable-next-line new-cap -- uPlot is a constructor with a lowercase name
+    const plot = new uPlot(o, alignedData, container);
+    uPlotRef.current = plot;
+
+    return () => {
+      plot.destroy();
+      uPlotRef.current = null;
+    };
+  }, [opts, alignedData]);
+
+  // Resize chart when container size changes
+  useEffect(() => {
+    const container = chartRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const ro = new ResizeObserver(([entry]) => {
+      if (!uPlotRef.current) {
+        return;
+      }
+
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        uPlotRef.current.setSize({ width, height });
+      }
+    });
+
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
+
+  // Toggle series visibility via the uPlot API
+  const toggleSeries = useCallback(
+    (seriesIdx: number) => {
+      const plot = uPlotRef.current;
+      if (!plot) {
+        return;
+      }
+      const current = plot.series[seriesIdx]?.show ?? true;
+      plot.setSeries(seriesIdx, { show: !current });
+      forceRender(); // re-read visibility for legend
+    },
+    [forceRender],
+  );
+
+  // Build legend items grouped by unit
+  const legendGroups = useMemo(
+    () => buildLegendGroups(unitOrder, unitMap),
+    [unitOrder, unitMap],
   );
 
   return (
-    <div ref={containerRef} className={styles.container}>
+    <div className={styles.container}>
       <div className={styles.legend}>
-        <button
-          type="button"
-          className={styles.legendItem}
-          aria-pressed={mainVisible}
-          onClick={() => setMainVisible((v) => !v)}
-        >
-          <span
-            className={styles.legendColor}
-            style={{
-              backgroundColor: mainColor,
-              opacity: mainVisible ? 1 : 0.3,
-            }}
-          />
-          <span
-            className={styles.legendLabel}
-            style={{ opacity: mainVisible ? 1 : 0.5 }}
-          >
-            {mainCurve.label}
-          </span>
-        </button>
-        {auxCurves.map((curve, i) => (
-          <button
-            key={curve.path}
-            type="button"
-            className={styles.legendItem}
-            aria-pressed={auxVisible[i]}
-            onClick={() => {
-              setAuxVisible((prev) => {
-                const next = [...prev];
-                next[i] = !next[i];
-                return next;
-              });
-            }}
-          >
-            <span
-              className={styles.legendColor}
-              style={{
-                backgroundColor: auxColors[i % auxColors.length],
-                opacity: auxVisible[i] ? 1 : 0.3,
-              }}
-            />
-            <span
-              className={styles.legendLabel}
-              style={{ opacity: auxVisible[i] ? 1 : 0.5 }}
-            >
-              {curve.label}
-            </span>
-          </button>
+        {legendGroups.map((group) => (
+          <div key={group.unit} className={styles.legendGroup}>
+            {unitOrder.length > 1 && group.unit && (
+              <span className={styles.legendUnit}>{group.unit}</span>
+            )}
+            {group.items.map((item) => {
+              const isVisible =
+                uPlotRef.current?.series[item.seriesIdx]?.show ?? true;
+
+              return (
+                <button
+                  key={item.seriesIdx}
+                  type="button"
+                  className={styles.legendItem}
+                  aria-pressed={isVisible}
+                  onClick={() => toggleSeries(item.seriesIdx)}
+                >
+                  <span
+                    className={styles.legendColor}
+                    style={{
+                      backgroundColor: item.color,
+                      opacity: isVisible ? 1 : 0.3,
+                    }}
+                  />
+                  <span
+                    className={styles.legendLabel}
+                    style={{ opacity: isVisible ? 1 : 0.5 }}
+                  >
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         ))}
       </div>
-      <LineVis
-        className={styles.chartArea}
-        dataArray={mainArray}
-        domain={combinedDomain}
-        scaleType={ScaleType.Linear}
-        abscissaParams={abscissaParams}
-        ordinateLabel="Signal"
-        title="Overlay"
-        auxiliaries={auxiliaries}
-        visible={mainVisible}
-        showGrid
-      >
-        <KeepZoom visKey="overlay" xOnly />
-      </LineVis>
+      <div ref={chartRef} className={styles.chartArea} />
     </div>
   );
 }

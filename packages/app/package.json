@@ -68,6 +68,7 @@
     "react-icons": "5.4.0",
     "react-resizable-panels": "4.7.1",
     "three": "0.182.0",
+    "uplot": "1.6.32",
     "zustand": "5.0.11"
   },
   "devDependencies": {
