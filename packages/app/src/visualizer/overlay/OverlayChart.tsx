@@ -70,6 +70,12 @@ function OverlayChart(props: Props) {
     [stableCurves],
   );
 
+  const curveColorsRef = useRef<string[]>([]);
+  curveColorsRef.current = curveColors;
+
+  const yAutoScaleRef = useRef(true);
+  const fullExtentsRef = useRef<{ xMin: number; xMax: number; yMin: number; yMax: number } | null>(null);
+
   // Scale key for each unit: first unit -> 'y' (left), others -> 'y2' (right)
   const scaleKeyForUnit = useCallback(
     (unit: string) => {
@@ -88,18 +94,18 @@ function OverlayChart(props: Props) {
       series.push({
         label: curve.label,
         stroke: curveColors[i],
-        width: 2,
+        width: 1,
         scale: scaleKeyForUnit(unit),
       });
     }
 
     const scales: uPlot.Scales = {
       x: { time: false },
-      y: { auto: true },
+      y: { auto: (_self: uPlot, resetScales: boolean) => resetScales || yAutoScaleRef.current },
     };
 
     if (unitOrder.length > 1) {
-      scales.y2 = { auto: true };
+      scales.y2 = { auto: (_self: uPlot, resetScales: boolean) => resetScales || yAutoScaleRef.current };
     }
 
     const axes: uPlot.Axis[] = [
@@ -146,7 +152,21 @@ function OverlayChart(props: Props) {
       legend: { show: false },
       focus: { alpha: 0.3 },
       cursor: {
-        drag: { x: true, y: false, setScale: true },
+        drag: { x: true, y: true, setScale: true },
+        bind: {
+          mousedown: (
+            _self: uPlot,
+            _targ: HTMLElement,
+            handler: (e: MouseEvent) => null,
+          ) => {
+            return (e: MouseEvent): null => {
+              if (e.ctrlKey || e.metaKey) {
+                handler(e);
+              }
+              return null;
+            };
+          },
+        },
       },
       hooks: {
         setScale: [],
@@ -169,6 +189,43 @@ function OverlayChart(props: Props) {
     const plot = new uPlot(o, alignedData, container);
     uPlotRef.current = plot;
 
+    // Compute full extents with 5% padding for zoom/pan bounds
+    let fullYMin = Infinity;
+    let fullYMax = -Infinity;
+    for (let si = 1; si < plot.data.length; si++) {
+      const ys = plot.data[si];
+      for (let j = 0; j < ys.length; j++) {
+        const v = ys[j];
+        if (v != null) {
+          if (v < fullYMin) { fullYMin = v; }
+          if (v > fullYMax) { fullYMax = v; }
+        }
+      }
+    }
+    const fullYRange = fullYMax - fullYMin;
+    const yPad = fullYRange * 0.05;
+    fullYMin -= yPad;
+    fullYMax += yPad;
+
+    const [xDataFull] = plot.data;
+    const dataXMin = xDataFull[0];
+    const dataXMax = xDataFull[xDataFull.length - 1];
+    const rawXRange = dataXMax - dataXMin;
+    const xPad = rawXRange * 0.05;
+    const fullXMin = dataXMin - xPad;
+    const fullXMax = dataXMax + xPad;
+
+    fullExtentsRef.current = { xMin: fullXMin, xMax: fullXMax, yMin: fullYMin, yMax: fullYMax };
+
+    // Set initial scales to padded extents
+    plot.batch(() => {
+      plot.setScale('x', { min: fullXMin, max: fullXMax });
+      plot.setScale('y', { min: fullYMin, max: fullYMax });
+      if (plot.scales.y2) {
+        plot.setScale('y2', { min: fullYMin, max: fullYMax });
+      }
+    });
+
     // Track zoom state imperatively (no React state) to avoid
     // re-render → opts change → uPlot recreation → zoom lost.
     plot.hooks.setScale?.push(() => {
@@ -180,16 +237,16 @@ function OverlayChart(props: Props) {
       if (xData.length === 0) {
         return;
       }
-      const [fullMin] = xData;
-      const fullMax = xData[xData.length - 1];
       const curMin = plot.scales.x.min;
       const curMax = plot.scales.x.max;
       if (curMin === undefined || curMax === undefined) {
         return;
       }
-      const zoomed =
-        curMin > fullMin + 1e-12 || curMax < fullMax - 1e-12;
+      const zoomed = curMin > fullXMin + 1e-12 || curMax < fullXMax - 1e-12;
       btn.hidden = !zoomed;
+      if (zoomed) {
+        yAutoScaleRef.current = false;
+      }
     });
 
     // Show tooltip with cursor values
@@ -205,12 +262,215 @@ function OverlayChart(props: Props) {
         return;
       }
 
-      tip.innerHTML = buildTooltipHtml(u, idx, seriesUnitsRef.current);
+      tip.innerHTML = buildTooltipHtml(
+        u,
+        idx,
+        seriesUnitsRef.current,
+        curveColorsRef.current,
+      );
       tip.hidden = false;
       positionTooltip(tip, u, cursorX, cursorY ?? 0);
     });
 
+    // Click-drag panning (without Ctrl) and wheel zoom
+    const over = plot.over;
+
+    function isZoomed(): boolean {
+      const [xData] = plot.data;
+      if (xData.length === 0) {
+        return false;
+      }
+      const curXMin = plot.scales.x.min;
+      const curXMax = plot.scales.x.max;
+      if (curXMin == null || curXMax == null) {
+        return false;
+      }
+      if (curXMin > fullXMin + 1e-12 || curXMax < fullXMax - 1e-12) {
+        return true;
+      }
+      const curYMin = plot.scales.y.min;
+      const curYMax = plot.scales.y.max;
+      if (curYMin != null && curYMax != null) {
+        if (curYMin > fullYMin + 1e-12 || curYMax < fullYMax - 1e-12) {
+          return true;
+        }
+      }
+      return false;
+    }
+    let panStart: {
+      clientX: number;
+      clientY: number;
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+      y2Min: number;
+      y2Max: number;
+      xUnitsPerPx: number;
+      yUnitsPerPx: number;
+      y2UnitsPerPx: number;
+    } | null = null;
+    let rafPending = false;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    function onMouseDown(e: MouseEvent) {
+      if (e.ctrlKey || e.metaKey || e.button !== 0) {
+        return;
+      }
+      if (!isZoomed()) {
+        return;
+      }
+      const xs = plot.scales.x;
+      const ys = plot.scales.y;
+      const y2s = plot.scales.y2;
+      if (xs.min == null || xs.max == null || ys.min == null || ys.max == null) {
+        return;
+      }
+      panStart = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        xMin: xs.min,
+        xMax: xs.max,
+        yMin: ys.min,
+        yMax: ys.max,
+        y2Min: y2s?.min ?? 0,
+        y2Max: y2s?.max ?? 0,
+        xUnitsPerPx: plot.posToVal(1, 'x') - plot.posToVal(0, 'x'),
+        yUnitsPerPx: plot.posToVal(1, 'y') - plot.posToVal(0, 'y'),
+        y2UnitsPerPx: y2s ? plot.posToVal(1, 'y2') - plot.posToVal(0, 'y2') : 0,
+      };
+      over.style.cursor = 'grabbing';
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      if (!panStart) {
+        return;
+      }
+      e.preventDefault();
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(doPan);
+      }
+    }
+
+    function doPan() {
+      rafPending = false;
+      if (!panStart) {
+        return;
+      }
+
+      let dx = (lastClientX - panStart.clientX) * panStart.xUnitsPerPx;
+      if (panStart.xMin - dx < fullXMin) { dx = panStart.xMin - fullXMin; }
+      if (panStart.xMax - dx > fullXMax) { dx = panStart.xMax - fullXMax; }
+
+      let dy = (lastClientY - panStart.clientY) * panStart.yUnitsPerPx;
+      const yRange = panStart.yMax - panStart.yMin;
+      if (panStart.yMin - dy < fullYMin) { dy = panStart.yMin - fullYMin; }
+      if (panStart.yMax - dy > fullYMax) { dy = panStart.yMax - fullYMax; }
+
+      plot.batch(() => {
+        plot.setScale('x', { min: panStart!.xMin - dx, max: panStart!.xMax - dx });
+        plot.setScale('y', { min: panStart!.yMin - dy, max: panStart!.yMax - dy });
+        if (plot.scales.y2) {
+          let dy2 = (lastClientY - panStart!.clientY) * panStart!.y2UnitsPerPx;
+          const y2Range = panStart!.y2Max - panStart!.y2Min;
+          if (panStart!.y2Min - dy2 < fullYMin) { dy2 = panStart!.y2Min - fullYMin; }
+          if (panStart!.y2Max - dy2 > fullYMax) { dy2 = panStart!.y2Max - fullYMax; }
+          plot.setScale('y2', { min: panStart!.y2Min - dy2, max: panStart!.y2Max - dy2 });
+        }
+      });
+    }
+
+    function onMouseUp() {
+      if (panStart) {
+        panStart = null;
+        over.style.cursor = '';
+      }
+    }
+
+    const WHEEL_ZOOM_FACTOR = 0.75;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const zoomingOut = e.deltaY > 0;
+      if (zoomingOut && !isZoomed()) {
+        return;
+      }
+      yAutoScaleRef.current = false;
+      const { left, top } = plot.cursor;
+      if (left == null || top == null) {
+        return;
+      }
+
+      const zoomX = !e.shiftKey;
+      const zoomY = !e.altKey;
+
+      const leftPct = left / over.clientWidth;
+      const btmPct = 1 - top / over.clientHeight;
+
+      let nxMin = plot.scales.x.min!;
+      let nxMax = plot.scales.x.max!;
+      if (zoomX) {
+        const oxRange = nxMax - nxMin;
+        const nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
+        if (nxRange >= fullXMax - fullXMin) {
+          yAutoScaleRef.current = false;
+          plot.batch(() => {
+            plot.setScale('x', { min: fullXMin, max: fullXMax });
+            plot.setScale('y', { min: fullYMin, max: fullYMax });
+            if (plot.scales.y2) {
+              plot.setScale('y2', { min: fullYMin, max: fullYMax });
+            }
+          });
+          return;
+        }
+        const xVal = plot.posToVal(left, 'x');
+        nxMin = xVal - leftPct * nxRange;
+        nxMax = nxMin + nxRange;
+        if (nxMin < fullXMin) { nxMin = fullXMin; nxMax = fullXMin + nxRange; }
+        if (nxMax > fullXMax) { nxMax = fullXMax; nxMin = fullXMax - nxRange; }
+      }
+
+      plot.batch(() => {
+        plot.setScale('x', { min: nxMin, max: nxMax });
+        if (zoomY) {
+          const oyRange = plot.scales.y.max! - plot.scales.y.min!;
+          let nyRange = zoomingOut ? oyRange / WHEEL_ZOOM_FACTOR : oyRange * WHEEL_ZOOM_FACTOR;
+          if (zoomingOut && nyRange >= fullYMax - fullYMin) {
+            plot.setScale('y', { min: fullYMin, max: fullYMax });
+          } else {
+            const yVal = plot.posToVal(top, 'y');
+            const nyMin = yVal - btmPct * nyRange;
+            plot.setScale('y', { min: nyMin, max: nyMin + nyRange });
+          }
+          if (plot.scales.y2) {
+            const oy2Range = plot.scales.y2.max! - plot.scales.y2.min!;
+            const ny2Range = zoomingOut ? oy2Range / WHEEL_ZOOM_FACTOR : oy2Range * WHEEL_ZOOM_FACTOR;
+            const y2Val = plot.posToVal(top, 'y2');
+            const ny2Min = y2Val - btmPct * ny2Range;
+            plot.setScale('y2', { min: ny2Min, max: ny2Min + ny2Range });
+          }
+        } else {
+          plot.setScale('y', { min: plot.scales.y.min!, max: plot.scales.y.max! });
+          if (plot.scales.y2) {
+            plot.setScale('y2', { min: plot.scales.y2.min!, max: plot.scales.y2.max! });
+          }
+        }
+      });
+    }
+
+    over.addEventListener('mousedown', onMouseDown);
+    over.addEventListener('wheel', onWheel, { passive: false });
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
     return () => {
+      over.removeEventListener('mousedown', onMouseDown);
+      over.removeEventListener('wheel', onWheel);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
       plot.destroy();
       uPlotRef.current = null;
     };
@@ -241,11 +501,18 @@ function OverlayChart(props: Props) {
   // Reset zoom by re-setting data with resetScales flag
   const resetZoom = useCallback(() => {
     const plot = uPlotRef.current;
-    if (!plot) {
+    const ext = fullExtentsRef.current;
+    if (!plot || !ext) {
       return;
     }
-    plot.setData(plot.data, true);
-    // Button will be hidden by the setScale hook firing after reset
+    yAutoScaleRef.current = false;
+    plot.batch(() => {
+      plot.setScale('x', { min: ext.xMin, max: ext.xMax });
+      plot.setScale('y', { min: ext.yMin, max: ext.yMax });
+      if (plot.scales.y2) {
+        plot.setScale('y2', { min: ext.yMin, max: ext.yMax });
+      }
+    });
   }, []);
 
   // Toggle series visibility via the uPlot API + imperative legend update
@@ -257,7 +524,19 @@ function OverlayChart(props: Props) {
         return;
       }
       const current = plot.series[seriesIdx]?.show ?? true;
+      const savedY = { min: plot.scales.y.min!, max: plot.scales.y.max! };
+      const savedY2 = plot.scales.y2
+        ? { min: plot.scales.y2.min!, max: plot.scales.y2.max! }
+        : null;
+      yAutoScaleRef.current = true;
       plot.setSeries(seriesIdx, { show: !current });
+      yAutoScaleRef.current = false;
+      plot.batch(() => {
+        plot.setScale('y', savedY);
+        if (savedY2) {
+          plot.setScale('y2', savedY2);
+        }
+      });
 
       const nowVisible = !current;
       btn.setAttribute('aria-pressed', String(nowVisible));
@@ -274,20 +553,17 @@ function OverlayChart(props: Props) {
   );
 
   // Highlight a series on legend hover (imperative to avoid re-render)
-  const focusSeries = useCallback(
-    (seriesIdx: number | null) => {
-      const plot = uPlotRef.current;
-      if (!plot) {
-        return;
-      }
-      if (seriesIdx !== null) {
-        plot.setSeries(seriesIdx, { focus: true });
-      } else {
-        plot.setSeries(null, { focus: false });
-      }
-    },
-    [],
-  );
+  const focusSeries = useCallback((seriesIdx: number | null) => {
+    const plot = uPlotRef.current;
+    if (!plot) {
+      return;
+    }
+    if (seriesIdx !== null) {
+      plot.setSeries(seriesIdx, { focus: true });
+    } else {
+      plot.setSeries(null, { focus: false });
+    }
+  }, []);
 
   // Build legend items grouped by unit
   const legendGroups = useMemo(
@@ -304,43 +580,45 @@ function OverlayChart(props: Props) {
               <span className={styles.legendUnit}>{group.unit}</span>
             )}
             {group.items.map((item) => (
-                <span key={item.seriesIdx} className={styles.legendEntry}>
-                  <button
-                    type="button"
-                    className={styles.legendItem}
-                    aria-pressed
-                    onClick={(e) =>
-                      toggleSeries(
-                        item.seriesIdx,
-                        e.currentTarget,
-                      )
-                    }
-                    onMouseEnter={() => focusSeries(item.seriesIdx)}
-                    onMouseLeave={() => focusSeries(null)}
-                  >
-                    <span
-                      className={styles.legendColor}
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className={styles.legendLabel}>
-                      <span className={styles.legendSubsystem}>
-                        {item.subsystem}
-                      </span>
-                      {item.label}
+              <span key={item.seriesIdx} className={styles.legendEntry}>
+                <button
+                  type="button"
+                  className={styles.legendItem}
+                  aria-pressed
+                  onClick={(e) => toggleSeries(item.seriesIdx, e.currentTarget)}
+                  onMouseEnter={() => focusSeries(item.seriesIdx)}
+                  onMouseLeave={() => focusSeries(null)}
+                >
+                  <span
+                    className={styles.legendColor}
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className={styles.legendLabel}>
+                    <span className={styles.legendSubsystem}>
+                      {item.subsystem}
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.legendRemove}
-                    aria-label={`Remove ${item.label}`}
-                    onClick={() => onRemovePath(item.path)}
-                  >
-                    &times;
-                  </button>
-                </span>
+                    {item.label}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.legendRemove}
+                  aria-label={`Remove ${item.label}`}
+                  onClick={() => onRemovePath(item.path)}
+                >
+                  &times;
+                </button>
+              </span>
             ))}
           </div>
         ))}
+        <button
+          type="button"
+          className={styles.legendClearAll}
+          onClick={() => checkedPaths.forEach(onRemovePath)}
+        >
+          Clear all
+        </button>
       </div>
       <div className={styles.chartWrapper}>
         <div ref={chartRef} className={styles.chartArea} />

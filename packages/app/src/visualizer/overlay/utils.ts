@@ -131,13 +131,14 @@ export function buildTooltipHtml(
   u: uPlot,
   idx: number,
   seriesUnits: (string | undefined)[],
+  colors: string[],
 ): string {
   const xVal = u.data[0][idx];
 
   const axisLabel = u.axes[0]?.label;
   const axisPrefix =
     typeof axisLabel === 'string' && axisLabel ? `${axisLabel}: ` : '';
-  let html = `<div class="${styles.tooltipHeader}">${axisPrefix}${formatTick(xVal)}</div>`;
+  let html = `<div class="${styles.tooltipHeader}">${axisPrefix}${(xVal * 1000).toFixed(3)} ms</div>`;
 
   for (let i = 1; i < u.series.length; i++) {
     const s = u.series[i];
@@ -148,11 +149,11 @@ export function buildTooltipHtml(
     if (val === null || val === undefined) {
       continue;
     }
-    const color = typeof s.stroke === 'string' ? s.stroke : '';
+    const color = colors[i - 1] ?? '';
     const label = typeof s.label === 'string' ? s.label : '';
     const unit = seriesUnits[i];
     const unitSuffix = unit ? ` ${unit}` : '';
-    html += `<div class="${styles.tooltipRow}"><span class="${styles.tooltipSwatch}" style="background:${color}"></span>${label}: ${formatTick(val)}${unitSuffix}</div>`;
+    html += `<div class="${styles.tooltipRow}"><span class="${styles.tooltipSwatch}" style="background-color:${color}"></span>${label}: ${formatTick(val)}${unitSuffix}</div>`;
   }
 
   return html;
