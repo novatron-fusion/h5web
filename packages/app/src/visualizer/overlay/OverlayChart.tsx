@@ -592,6 +592,13 @@ function OverlayChart(props: Props) {
             ))}
           </div>
         ))}
+        <button
+          type="button"
+          className={styles.legendClearAll}
+          onClick={() => checkedPaths.forEach(onRemovePath)}
+        >
+          Clear all
+        </button>
       </div>
       <div className={styles.chartWrapper}>
         <div ref={chartRef} className={styles.chartArea} />

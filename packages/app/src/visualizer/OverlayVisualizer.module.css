@@ -28,6 +28,8 @@
 }
 
 .legend {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -90,6 +92,22 @@
 
 .legendRemove:hover {
   color: var(--error);
+}
+
+.legendClearAll {
+  composes: btnClean from global;
+  margin-left: auto;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--secondary-dark);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.legendClearAll:hover {
+  color: var(--error);
+  background-color: var(--primary-light);
 }
 
 .legendColor {

@@ -57,7 +57,9 @@ function App(props: Props) {
   const { valuesStore } = useDataContext();
   function onSelectPath(path: string) {
     setSelectedPath(path);
-    valuesStore.abortAll('entity changed', true);
+    if (!isOverlaying) {
+      valuesStore.abortAll('entity changed', true);
+    }
   }
 
   const onToggleCheckedPath = useCallback((path: string) => {
@@ -76,10 +78,7 @@ function App(props: Props) {
     setViewerMode(mode);
   }, []);
 
-  const checkedPathsArray = useMemo(
-    () => [...checkedPaths],
-    [checkedPaths],
-  );
+  const checkedPathsArray = useMemo(() => [...checkedPaths], [checkedPaths]);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'h5web:layout',
@@ -173,13 +172,12 @@ function App(props: Props) {
                       <Visualizer path={selectedPath} />
                     ) : null}
                   </Suspense>
-                  {/* Keep overlay mounted (hidden) so data/chart state survives mode switches */}
-                  <OverlayVisualizer
-                    checkedPaths={checkedPathsArray}
-                    hidden={!isOverlaying}
-                    onRemovePath={onToggleCheckedPath}
-                  />
                 </ErrorBoundary>
+                <OverlayVisualizer
+                  checkedPaths={checkedPathsArray}
+                  hidden={!isOverlaying}
+                  onRemovePath={onToggleCheckedPath}
+                />
               </KeepZoomProvider>
             </DimMappingProvider>
           </VisConfigProvider>

@@ -38,7 +38,16 @@ interface Props {
 }
 
 function EntityItem(props: Props) {
-  const { path, entity, level, selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
+  const {
+    path,
+    entity,
+    level,
+    selectedPath,
+    onSelect,
+    isOverlaying,
+    checkedPaths,
+    onToggleCheckedPath,
+  } = props;
   const isSelected = path === selectedPath;
   const isChecked = checkedPaths.has(path);
 
@@ -129,8 +138,12 @@ function EntityItem(props: Props) {
         aria-expanded={isGroup(entity) ? isExpanded : undefined}
         aria-selected={isSelected}
         data-path={path}
-        data-checked={isChecked || undefined}
         onClick={() => {
+          if (isOverlaying && eligible) {
+            onToggleCheckedPath(path);
+            return;
+          }
+
           // Expand if collapsed; collapse is expanded and selected
           if (isGroup(entity) && (!isExpanded || isSelected)) {
             toggleExpanded();
@@ -140,7 +153,7 @@ function EntityItem(props: Props) {
         }}
         onKeyDown={handleKeyDown}
       >
-        {isOverlaying && eligible && (
+        {(isOverlaying || isChecked) && eligible && (
           <input
             className={styles.overlayCheckbox}
             type="checkbox"
