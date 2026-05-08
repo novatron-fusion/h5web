@@ -73,6 +73,8 @@ function OverlayChart(props: Props) {
   const curveColorsRef = useRef<string[]>([]);
   curveColorsRef.current = curveColors;
 
+  const yAutoScaleRef = useRef(true);
+
   // Scale key for each unit: first unit -> 'y' (left), others -> 'y2' (right)
   const scaleKeyForUnit = useCallback(
     (unit: string) => {
@@ -98,11 +100,11 @@ function OverlayChart(props: Props) {
 
     const scales: uPlot.Scales = {
       x: { time: false },
-      y: { auto: true },
+      y: { auto: (_self: uPlot, resetScales: boolean) => resetScales || yAutoScaleRef.current },
     };
 
     if (unitOrder.length > 1) {
-      scales.y2 = { auto: true };
+      scales.y2 = { auto: (_self: uPlot, resetScales: boolean) => resetScales || yAutoScaleRef.current };
     }
 
     const axes: uPlot.Axis[] = [
@@ -206,6 +208,9 @@ function OverlayChart(props: Props) {
       }
       const zoomed = curMin > fullMin + 1e-12 || curMax < fullMax - 1e-12;
       btn.hidden = !zoomed;
+      if (zoomed) {
+        yAutoScaleRef.current = false;
+      }
     });
 
     // Show tooltip with cursor values
@@ -381,6 +386,7 @@ function OverlayChart(props: Props) {
       if (zoomingOut && !isZoomed()) {
         return;
       }
+      yAutoScaleRef.current = false;
       const { left, top } = plot.cursor;
       if (left == null || top == null) {
         return;
@@ -403,6 +409,7 @@ function OverlayChart(props: Props) {
         const oxRange = nxMax - nxMin;
         const nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
         if (nxRange >= fullXRange) {
+          yAutoScaleRef.current = true;
           plot.setData(plot.data, true);
           return;
         }
@@ -431,6 +438,11 @@ function OverlayChart(props: Props) {
             const y2Val = plot.posToVal(top, 'y2');
             const ny2Min = y2Val - btmPct * ny2Range;
             plot.setScale('y2', { min: ny2Min, max: ny2Min + ny2Range });
+          }
+        } else {
+          plot.setScale('y', { min: plot.scales.y.min!, max: plot.scales.y.max! });
+          if (plot.scales.y2) {
+            plot.setScale('y2', { min: plot.scales.y2.min!, max: plot.scales.y2.max! });
           }
         }
       });
