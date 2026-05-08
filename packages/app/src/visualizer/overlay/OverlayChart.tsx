@@ -234,6 +234,24 @@ function OverlayChart(props: Props) {
     // Click-drag panning (without Ctrl) and wheel zoom
     const over = plot.over;
 
+    // Compute full y extents from all data series
+    let fullYMin = Infinity;
+    let fullYMax = -Infinity;
+    for (let si = 1; si < plot.data.length; si++) {
+      const ys = plot.data[si];
+      for (let j = 0; j < ys.length; j++) {
+        const v = ys[j];
+        if (v != null) {
+          if (v < fullYMin) { fullYMin = v; }
+          if (v > fullYMax) { fullYMax = v; }
+        }
+      }
+    }
+    const fullYRange = fullYMax - fullYMin;
+    const yPad = fullYRange * 0.05;
+    fullYMin -= yPad;
+    fullYMax += yPad;
+
     function isZoomed(): boolean {
       const [xData] = plot.data;
       if (xData.length === 0) {
@@ -246,7 +264,17 @@ function OverlayChart(props: Props) {
       if (curXMin == null || curXMax == null) {
         return false;
       }
-      return curXMin > fullXMin + 1e-12 || curXMax < fullXMax - 1e-12;
+      if (curXMin > fullXMin + 1e-12 || curXMax < fullXMax - 1e-12) {
+        return true;
+      }
+      const curYMin = plot.scales.y.min;
+      const curYMax = plot.scales.y.max;
+      if (curYMin != null && curYMax != null) {
+        if (curYMin > fullYMin + 1e-12 || curYMax < fullYMax - 1e-12) {
+          return true;
+        }
+      }
+      return false;
     }
     let panStart: {
       clientX: number;
@@ -312,13 +340,28 @@ function OverlayChart(props: Props) {
       if (!panStart) {
         return;
       }
-      const dx = (lastClientX - panStart.clientX) * panStart.xUnitsPerPx;
-      const dy = (lastClientY - panStart.clientY) * panStart.yUnitsPerPx;
+      const [xData] = plot.data;
+      const dataXMin = xData[0];
+      const dataXMax = xData[xData.length - 1];
+
+      let dx = (lastClientX - panStart.clientX) * panStart.xUnitsPerPx;
+      const xRange = panStart.xMax - panStart.xMin;
+      if (panStart.xMin - dx < dataXMin) { dx = panStart.xMin - dataXMin; }
+      if (panStart.xMax - dx > dataXMax) { dx = panStart.xMax - dataXMax; }
+
+      let dy = (lastClientY - panStart.clientY) * panStart.yUnitsPerPx;
+      const yRange = panStart.yMax - panStart.yMin;
+      if (panStart.yMin - dy < fullYMin) { dy = panStart.yMin - fullYMin; }
+      if (panStart.yMax - dy > fullYMax) { dy = panStart.yMax - fullYMax; }
+
       plot.batch(() => {
         plot.setScale('x', { min: panStart!.xMin - dx, max: panStart!.xMax - dx });
         plot.setScale('y', { min: panStart!.yMin - dy, max: panStart!.yMax - dy });
         if (plot.scales.y2) {
-          const dy2 = (lastClientY - panStart!.clientY) * panStart!.y2UnitsPerPx;
+          let dy2 = (lastClientY - panStart!.clientY) * panStart!.y2UnitsPerPx;
+          const y2Range = panStart!.y2Max - panStart!.y2Min;
+          if (panStart!.y2Min - dy2 < fullYMin) { dy2 = panStart!.y2Min - fullYMin; }
+          if (panStart!.y2Max - dy2 > fullYMax) { dy2 = panStart!.y2Max - fullYMax; }
           plot.setScale('y2', { min: panStart!.y2Min - dy2, max: panStart!.y2Max - dy2 });
         }
       });
@@ -343,6 +386,9 @@ function OverlayChart(props: Props) {
         return;
       }
 
+      const zoomX = !e.shiftKey;
+      const zoomY = !e.altKey;
+
       const [xData] = plot.data;
       const fullXMin = xData[0];
       const fullXMax = xData[xData.length - 1];
@@ -351,32 +397,41 @@ function OverlayChart(props: Props) {
       const leftPct = left / over.clientWidth;
       const btmPct = 1 - top / over.clientHeight;
 
-      const oxRange = plot.scales.x.max! - plot.scales.x.min!;
-      let nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
-      if (nxRange >= fullXRange) {
-        plot.setData(plot.data, true);
-        return;
+      let nxMin = plot.scales.x.min!;
+      let nxMax = plot.scales.x.max!;
+      if (zoomX) {
+        const oxRange = nxMax - nxMin;
+        const nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
+        if (nxRange >= fullXRange) {
+          plot.setData(plot.data, true);
+          return;
+        }
+        const xVal = plot.posToVal(left, 'x');
+        nxMin = xVal - leftPct * nxRange;
+        nxMax = nxMin + nxRange;
+        if (nxMin < fullXMin) { nxMin = fullXMin; nxMax = fullXMin + nxRange; }
+        if (nxMax > fullXMax) { nxMax = fullXMax; nxMin = fullXMax - nxRange; }
       }
-      const xVal = plot.posToVal(left, 'x');
-      let nxMin = xVal - leftPct * nxRange;
-      let nxMax = nxMin + nxRange;
-      if (nxMin < fullXMin) { nxMin = fullXMin; nxMax = fullXMin + nxRange; }
-      if (nxMax > fullXMax) { nxMax = fullXMax; nxMin = fullXMax - nxRange; }
-
-      const oyRange = plot.scales.y.max! - plot.scales.y.min!;
-      const nyRange = zoomingOut ? oyRange / WHEEL_ZOOM_FACTOR : oyRange * WHEEL_ZOOM_FACTOR;
-      const yVal = plot.posToVal(top, 'y');
-      const nyMin = yVal - btmPct * nyRange;
 
       plot.batch(() => {
         plot.setScale('x', { min: nxMin, max: nxMax });
-        plot.setScale('y', { min: nyMin, max: nyMin + nyRange });
-        if (plot.scales.y2) {
-          const oy2Range = plot.scales.y2.max! - plot.scales.y2.min!;
-          const ny2Range = zoomingOut ? oy2Range / WHEEL_ZOOM_FACTOR : oy2Range * WHEEL_ZOOM_FACTOR;
-          const y2Val = plot.posToVal(top, 'y2');
-          const ny2Min = y2Val - btmPct * ny2Range;
-          plot.setScale('y2', { min: ny2Min, max: ny2Min + ny2Range });
+        if (zoomY) {
+          const oyRange = plot.scales.y.max! - plot.scales.y.min!;
+          let nyRange = zoomingOut ? oyRange / WHEEL_ZOOM_FACTOR : oyRange * WHEEL_ZOOM_FACTOR;
+          if (zoomingOut && nyRange >= fullYMax - fullYMin) {
+            plot.setScale('y', { min: fullYMin, max: fullYMax });
+          } else {
+            const yVal = plot.posToVal(top, 'y');
+            const nyMin = yVal - btmPct * nyRange;
+            plot.setScale('y', { min: nyMin, max: nyMin + nyRange });
+          }
+          if (plot.scales.y2) {
+            const oy2Range = plot.scales.y2.max! - plot.scales.y2.min!;
+            const ny2Range = zoomingOut ? oy2Range / WHEEL_ZOOM_FACTOR : oy2Range * WHEEL_ZOOM_FACTOR;
+            const y2Val = plot.posToVal(top, 'y2');
+            const ny2Min = y2Val - btmPct * ny2Range;
+            plot.setScale('y2', { min: ny2Min, max: ny2Min + ny2Range });
+          }
         }
       });
     }
