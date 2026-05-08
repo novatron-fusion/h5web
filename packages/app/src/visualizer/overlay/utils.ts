@@ -138,7 +138,7 @@ export function buildTooltipHtml(
   const axisLabel = u.axes[0]?.label;
   const axisPrefix =
     typeof axisLabel === 'string' && axisLabel ? `${axisLabel}: ` : '';
-  let html = `<div class="${styles.tooltipHeader}">${axisPrefix}${formatTick(xVal)}</div>`;
+  let html = `<div class="${styles.tooltipHeader}">${axisPrefix}${(xVal * 1000).toFixed(3)} ms</div>`;
 
   for (let i = 1; i < u.series.length; i++) {
     const s = u.series[i];
