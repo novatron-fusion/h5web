@@ -504,7 +504,19 @@ function OverlayChart(props: Props) {
         return;
       }
       const current = plot.series[seriesIdx]?.show ?? true;
+      const savedY = { min: plot.scales.y.min!, max: plot.scales.y.max! };
+      const savedY2 = plot.scales.y2
+        ? { min: plot.scales.y2.min!, max: plot.scales.y2.max! }
+        : null;
+      yAutoScaleRef.current = true;
       plot.setSeries(seriesIdx, { show: !current });
+      yAutoScaleRef.current = false;
+      plot.batch(() => {
+        plot.setScale('y', savedY);
+        if (savedY2) {
+          plot.setScale('y2', savedY2);
+        }
+      });
 
       const nowVisible = !current;
       btn.setAttribute('aria-pressed', String(nowVisible));
