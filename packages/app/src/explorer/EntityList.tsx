@@ -16,7 +16,15 @@ interface Props {
 }
 
 function EntityList(props: Props) {
-  const { level, parentPath, selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
+  const {
+    level,
+    parentPath,
+    selectedPath,
+    onSelect,
+    isOverlaying,
+    checkedPaths,
+    onToggleCheckedPath,
+  } = props;
 
   const group = useEntity(parentPath);
   assertGroup(group);

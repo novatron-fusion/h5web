@@ -74,7 +74,12 @@ function OverlayChart(props: Props) {
   curveColorsRef.current = curveColors;
 
   const yAutoScaleRef = useRef(true);
-  const fullExtentsRef = useRef<{ xMin: number; xMax: number; yMin: number; yMax: number } | null>(null);
+  const fullExtentsRef = useRef<{
+    xMin: number;
+    xMax: number;
+    yMin: number;
+    yMax: number;
+  } | null>(null);
 
   // Scale key for each unit: first unit -> 'y' (left), others -> 'y2' (right)
   const scaleKeyForUnit = useCallback(
@@ -101,11 +106,17 @@ function OverlayChart(props: Props) {
 
     const scales: uPlot.Scales = {
       x: { time: false },
-      y: { auto: (_self: uPlot, resetScales: boolean) => resetScales || yAutoScaleRef.current },
+      y: {
+        auto: (_self: uPlot, resetScales: boolean) =>
+          resetScales || yAutoScaleRef.current,
+      },
     };
 
     if (unitOrder.length > 1) {
-      scales.y2 = { auto: (_self: uPlot, resetScales: boolean) => resetScales || yAutoScaleRef.current };
+      scales.y2 = {
+        auto: (_self: uPlot, resetScales: boolean) =>
+          resetScales || yAutoScaleRef.current,
+      };
     }
 
     const axes: uPlot.Axis[] = [
@@ -197,8 +208,12 @@ function OverlayChart(props: Props) {
       for (let j = 0; j < ys.length; j++) {
         const v = ys[j];
         if (v != null) {
-          if (v < fullYMin) { fullYMin = v; }
-          if (v > fullYMax) { fullYMax = v; }
+          if (v < fullYMin) {
+            fullYMin = v;
+          }
+          if (v > fullYMax) {
+            fullYMax = v;
+          }
         }
       }
     }
@@ -215,7 +230,12 @@ function OverlayChart(props: Props) {
     const fullXMin = dataXMin - xPad;
     const fullXMax = dataXMax + xPad;
 
-    fullExtentsRef.current = { xMin: fullXMin, xMax: fullXMax, yMin: fullYMin, yMax: fullYMax };
+    fullExtentsRef.current = {
+      xMin: fullXMin,
+      xMax: fullXMax,
+      yMin: fullYMin,
+      yMax: fullYMax,
+    };
 
     // Set initial scales to padded extents
     plot.batch(() => {
@@ -324,7 +344,12 @@ function OverlayChart(props: Props) {
       const xs = plot.scales.x;
       const ys = plot.scales.y;
       const y2s = plot.scales.y2;
-      if (xs.min == null || xs.max == null || ys.min == null || ys.max == null) {
+      if (
+        xs.min == null ||
+        xs.max == null ||
+        ys.min == null ||
+        ys.max == null
+      ) {
         return;
       }
       panStart = {
@@ -363,23 +388,44 @@ function OverlayChart(props: Props) {
       }
 
       let dx = (lastClientX - panStart.clientX) * panStart.xUnitsPerPx;
-      if (panStart.xMin - dx < fullXMin) { dx = panStart.xMin - fullXMin; }
-      if (panStart.xMax - dx > fullXMax) { dx = panStart.xMax - fullXMax; }
+      if (panStart.xMin - dx < fullXMin) {
+        dx = panStart.xMin - fullXMin;
+      }
+      if (panStart.xMax - dx > fullXMax) {
+        dx = panStart.xMax - fullXMax;
+      }
 
       let dy = (lastClientY - panStart.clientY) * panStart.yUnitsPerPx;
       const yRange = panStart.yMax - panStart.yMin;
-      if (panStart.yMin - dy < fullYMin) { dy = panStart.yMin - fullYMin; }
-      if (panStart.yMax - dy > fullYMax) { dy = panStart.yMax - fullYMax; }
+      if (panStart.yMin - dy < fullYMin) {
+        dy = panStart.yMin - fullYMin;
+      }
+      if (panStart.yMax - dy > fullYMax) {
+        dy = panStart.yMax - fullYMax;
+      }
 
       plot.batch(() => {
-        plot.setScale('x', { min: panStart!.xMin - dx, max: panStart!.xMax - dx });
-        plot.setScale('y', { min: panStart!.yMin - dy, max: panStart!.yMax - dy });
+        plot.setScale('x', {
+          min: panStart!.xMin - dx,
+          max: panStart!.xMax - dx,
+        });
+        plot.setScale('y', {
+          min: panStart!.yMin - dy,
+          max: panStart!.yMax - dy,
+        });
         if (plot.scales.y2) {
           let dy2 = (lastClientY - panStart!.clientY) * panStart!.y2UnitsPerPx;
           const y2Range = panStart!.y2Max - panStart!.y2Min;
-          if (panStart!.y2Min - dy2 < fullYMin) { dy2 = panStart!.y2Min - fullYMin; }
-          if (panStart!.y2Max - dy2 > fullYMax) { dy2 = panStart!.y2Max - fullYMax; }
-          plot.setScale('y2', { min: panStart!.y2Min - dy2, max: panStart!.y2Max - dy2 });
+          if (panStart!.y2Min - dy2 < fullYMin) {
+            dy2 = panStart!.y2Min - fullYMin;
+          }
+          if (panStart!.y2Max - dy2 > fullYMax) {
+            dy2 = panStart!.y2Max - fullYMax;
+          }
+          plot.setScale('y2', {
+            min: panStart!.y2Min - dy2,
+            max: panStart!.y2Max - dy2,
+          });
         }
       });
     }
@@ -414,7 +460,9 @@ function OverlayChart(props: Props) {
       let nxMax = plot.scales.x.max!;
       if (zoomX) {
         const oxRange = nxMax - nxMin;
-        const nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
+        const nxRange = zoomingOut
+          ? oxRange / WHEEL_ZOOM_FACTOR
+          : oxRange * WHEEL_ZOOM_FACTOR;
         if (nxRange >= fullXMax - fullXMin) {
           yAutoScaleRef.current = false;
           plot.batch(() => {
@@ -429,15 +477,23 @@ function OverlayChart(props: Props) {
         const xVal = plot.posToVal(left, 'x');
         nxMin = xVal - leftPct * nxRange;
         nxMax = nxMin + nxRange;
-        if (nxMin < fullXMin) { nxMin = fullXMin; nxMax = fullXMin + nxRange; }
-        if (nxMax > fullXMax) { nxMax = fullXMax; nxMin = fullXMax - nxRange; }
+        if (nxMin < fullXMin) {
+          nxMin = fullXMin;
+          nxMax = fullXMin + nxRange;
+        }
+        if (nxMax > fullXMax) {
+          nxMax = fullXMax;
+          nxMin = fullXMax - nxRange;
+        }
       }
 
       plot.batch(() => {
         plot.setScale('x', { min: nxMin, max: nxMax });
         if (zoomY) {
           const oyRange = plot.scales.y.max! - plot.scales.y.min!;
-          let nyRange = zoomingOut ? oyRange / WHEEL_ZOOM_FACTOR : oyRange * WHEEL_ZOOM_FACTOR;
+          let nyRange = zoomingOut
+            ? oyRange / WHEEL_ZOOM_FACTOR
+            : oyRange * WHEEL_ZOOM_FACTOR;
           if (zoomingOut && nyRange >= fullYMax - fullYMin) {
             plot.setScale('y', { min: fullYMin, max: fullYMax });
           } else {
@@ -447,15 +503,23 @@ function OverlayChart(props: Props) {
           }
           if (plot.scales.y2) {
             const oy2Range = plot.scales.y2.max! - plot.scales.y2.min!;
-            const ny2Range = zoomingOut ? oy2Range / WHEEL_ZOOM_FACTOR : oy2Range * WHEEL_ZOOM_FACTOR;
+            const ny2Range = zoomingOut
+              ? oy2Range / WHEEL_ZOOM_FACTOR
+              : oy2Range * WHEEL_ZOOM_FACTOR;
             const y2Val = plot.posToVal(top, 'y2');
             const ny2Min = y2Val - btmPct * ny2Range;
             plot.setScale('y2', { min: ny2Min, max: ny2Min + ny2Range });
           }
         } else {
-          plot.setScale('y', { min: plot.scales.y.min!, max: plot.scales.y.max! });
+          plot.setScale('y', {
+            min: plot.scales.y.min!,
+            max: plot.scales.y.max!,
+          });
           if (plot.scales.y2) {
-            plot.setScale('y2', { min: plot.scales.y2.min!, max: plot.scales.y2.max! });
+            plot.setScale('y2', {
+              min: plot.scales.y2.min!,
+              max: plot.scales.y2.max!,
+            });
           }
         }
       });

@@ -21,10 +21,7 @@ import { RxDotFilled } from 'react-icons/rx';
 import { TbCube, TbTimeline } from 'react-icons/tb';
 
 import { type AttrValuesStore, type EntitiesStore } from '../providers/models';
-import {
-  findSignalDataset,
-  isNxDataGroup,
-} from '../vis-packs/nexus/utils';
+import { findSignalDataset, isNxDataGroup } from '../vis-packs/nexus/utils';
 
 const DATASET_ICONS = [RxDotFilled, TbTimeline, PiGridFourBold, TbCube];
 

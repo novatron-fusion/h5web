@@ -20,7 +20,13 @@ enum Tab {
 }
 
 function Sidebar(props: Props) {
-  const { selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
+  const {
+    selectedPath,
+    onSelect,
+    isOverlaying,
+    checkedPaths,
+    onToggleCheckedPath,
+  } = props;
 
   const [tab, setTab] = useState<Tab>(Tab.Explore);
   const [searchValue, setSearchValue] = useState<string>('');

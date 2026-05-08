@@ -15,7 +15,13 @@ interface Props {
 }
 
 function Explorer(props: Props) {
-  const { selectedPath, onSelect, isOverlaying, checkedPaths, onToggleCheckedPath } = props;
+  const {
+    selectedPath,
+    onSelect,
+    isOverlaying,
+    checkedPaths,
+    onToggleCheckedPath,
+  } = props;
   const { filename } = useDataContext();
 
   const ref = useRef<HTMLDivElement>(null);
