@@ -7,12 +7,11 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write # https://docs.npmjs.com/generating-provenance-statements#publishing-packages-with-provenance-via-github-actions
 
     steps:
       - name: Checkout 🏷️
@@ -27,8 +26,26 @@ jobs:
       - name: Install ⚙️
         uses: ./.github/actions/install
 
+      - name: Rename packages for GitHub Packages 📛
+        run: |
+          # Rename @h5web/* scope to @novatron-fusion/h5web-* in source and config files.
+          # This is a CI-only operation — source code in git stays as @h5web/*.
+          find . -not -path './node_modules/*' -not -path './.git/*' \
+            -not -path '*/dist/*' -not -path '*/dist-ts/*' \
+            -not -name 'pnpm-lock.yaml' \
+            \( -name 'package.json' -o -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) \
+            -exec sed -i 's/@h5web\//@novatron-fusion\/h5web-/g' {} +
+
+      - name: Reinstall with renamed packages ⚙️
+        run: pnpm install --no-frozen-lockfile
+
       - name: Build packages 📦
         run: pnpm packages
+
+      - name: Configure npm auth for GitHub Packages 🔑
+        run: echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish packages 🥳
         run: pnpm -r publish --access public --no-git-checks --tag $NPM_TAG
