@@ -149,7 +149,21 @@ function OverlayChart(props: Props) {
       legend: { show: false },
       focus: { alpha: 0.3 },
       cursor: {
-        drag: { x: true, y: false, setScale: true },
+        drag: { x: true, y: true, setScale: true },
+        bind: {
+          mousedown: (
+            _self: uPlot,
+            _targ: HTMLElement,
+            handler: (e: MouseEvent) => null,
+          ) => {
+            return (e: MouseEvent): null => {
+              if (e.ctrlKey || e.metaKey) {
+                handler(e);
+              }
+              return null;
+            };
+          },
+        },
       },
       hooks: {
         setScale: [],
