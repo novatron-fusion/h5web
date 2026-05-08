@@ -74,6 +74,7 @@ function OverlayChart(props: Props) {
   curveColorsRef.current = curveColors;
 
   const yAutoScaleRef = useRef(true);
+  const fullExtentsRef = useRef<{ xMin: number; xMax: number; yMin: number; yMax: number } | null>(null);
 
   // Scale key for each unit: first unit -> 'y' (left), others -> 'y2' (right)
   const scaleKeyForUnit = useCallback(
@@ -188,6 +189,43 @@ function OverlayChart(props: Props) {
     const plot = new uPlot(o, alignedData, container);
     uPlotRef.current = plot;
 
+    // Compute full extents with 5% padding for zoom/pan bounds
+    let fullYMin = Infinity;
+    let fullYMax = -Infinity;
+    for (let si = 1; si < plot.data.length; si++) {
+      const ys = plot.data[si];
+      for (let j = 0; j < ys.length; j++) {
+        const v = ys[j];
+        if (v != null) {
+          if (v < fullYMin) { fullYMin = v; }
+          if (v > fullYMax) { fullYMax = v; }
+        }
+      }
+    }
+    const fullYRange = fullYMax - fullYMin;
+    const yPad = fullYRange * 0.05;
+    fullYMin -= yPad;
+    fullYMax += yPad;
+
+    const [xDataFull] = plot.data;
+    const dataXMin = xDataFull[0];
+    const dataXMax = xDataFull[xDataFull.length - 1];
+    const rawXRange = dataXMax - dataXMin;
+    const xPad = rawXRange * 0.05;
+    const fullXMin = dataXMin - xPad;
+    const fullXMax = dataXMax + xPad;
+
+    fullExtentsRef.current = { xMin: fullXMin, xMax: fullXMax, yMin: fullYMin, yMax: fullYMax };
+
+    // Set initial scales to padded extents
+    plot.batch(() => {
+      plot.setScale('x', { min: fullXMin, max: fullXMax });
+      plot.setScale('y', { min: fullYMin, max: fullYMax });
+      if (plot.scales.y2) {
+        plot.setScale('y2', { min: fullYMin, max: fullYMax });
+      }
+    });
+
     // Track zoom state imperatively (no React state) to avoid
     // re-render → opts change → uPlot recreation → zoom lost.
     plot.hooks.setScale?.push(() => {
@@ -199,14 +237,12 @@ function OverlayChart(props: Props) {
       if (xData.length === 0) {
         return;
       }
-      const [fullMin] = xData;
-      const fullMax = xData[xData.length - 1];
       const curMin = plot.scales.x.min;
       const curMax = plot.scales.x.max;
       if (curMin === undefined || curMax === undefined) {
         return;
       }
-      const zoomed = curMin > fullMin + 1e-12 || curMax < fullMax - 1e-12;
+      const zoomed = curMin > fullXMin + 1e-12 || curMax < fullXMax - 1e-12;
       btn.hidden = !zoomed;
       if (zoomed) {
         yAutoScaleRef.current = false;
@@ -239,31 +275,11 @@ function OverlayChart(props: Props) {
     // Click-drag panning (without Ctrl) and wheel zoom
     const over = plot.over;
 
-    // Compute full y extents from all data series
-    let fullYMin = Infinity;
-    let fullYMax = -Infinity;
-    for (let si = 1; si < plot.data.length; si++) {
-      const ys = plot.data[si];
-      for (let j = 0; j < ys.length; j++) {
-        const v = ys[j];
-        if (v != null) {
-          if (v < fullYMin) { fullYMin = v; }
-          if (v > fullYMax) { fullYMax = v; }
-        }
-      }
-    }
-    const fullYRange = fullYMax - fullYMin;
-    const yPad = fullYRange * 0.05;
-    fullYMin -= yPad;
-    fullYMax += yPad;
-
     function isZoomed(): boolean {
       const [xData] = plot.data;
       if (xData.length === 0) {
         return false;
       }
-      const fullXMin = xData[0];
-      const fullXMax = xData[xData.length - 1];
       const curXMin = plot.scales.x.min;
       const curXMax = plot.scales.x.max;
       if (curXMin == null || curXMax == null) {
@@ -345,14 +361,10 @@ function OverlayChart(props: Props) {
       if (!panStart) {
         return;
       }
-      const [xData] = plot.data;
-      const dataXMin = xData[0];
-      const dataXMax = xData[xData.length - 1];
 
       let dx = (lastClientX - panStart.clientX) * panStart.xUnitsPerPx;
-      const xRange = panStart.xMax - panStart.xMin;
-      if (panStart.xMin - dx < dataXMin) { dx = panStart.xMin - dataXMin; }
-      if (panStart.xMax - dx > dataXMax) { dx = panStart.xMax - dataXMax; }
+      if (panStart.xMin - dx < fullXMin) { dx = panStart.xMin - fullXMin; }
+      if (panStart.xMax - dx > fullXMax) { dx = panStart.xMax - fullXMax; }
 
       let dy = (lastClientY - panStart.clientY) * panStart.yUnitsPerPx;
       const yRange = panStart.yMax - panStart.yMin;
@@ -395,11 +407,6 @@ function OverlayChart(props: Props) {
       const zoomX = !e.shiftKey;
       const zoomY = !e.altKey;
 
-      const [xData] = plot.data;
-      const fullXMin = xData[0];
-      const fullXMax = xData[xData.length - 1];
-      const fullXRange = fullXMax - fullXMin;
-
       const leftPct = left / over.clientWidth;
       const btmPct = 1 - top / over.clientHeight;
 
@@ -408,9 +415,15 @@ function OverlayChart(props: Props) {
       if (zoomX) {
         const oxRange = nxMax - nxMin;
         const nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
-        if (nxRange >= fullXRange) {
-          yAutoScaleRef.current = true;
-          plot.setData(plot.data, true);
+        if (nxRange >= fullXMax - fullXMin) {
+          yAutoScaleRef.current = false;
+          plot.batch(() => {
+            plot.setScale('x', { min: fullXMin, max: fullXMax });
+            plot.setScale('y', { min: fullYMin, max: fullYMax });
+            if (plot.scales.y2) {
+              plot.setScale('y2', { min: fullYMin, max: fullYMax });
+            }
+          });
           return;
         }
         const xVal = plot.posToVal(left, 'x');
@@ -488,11 +501,18 @@ function OverlayChart(props: Props) {
   // Reset zoom by re-setting data with resetScales flag
   const resetZoom = useCallback(() => {
     const plot = uPlotRef.current;
-    if (!plot) {
+    const ext = fullExtentsRef.current;
+    if (!plot || !ext) {
       return;
     }
-    plot.setData(plot.data, true);
-    // Button will be hidden by the setScale hook firing after reset
+    yAutoScaleRef.current = false;
+    plot.batch(() => {
+      plot.setScale('x', { min: ext.xMin, max: ext.xMax });
+      plot.setScale('y', { min: ext.yMin, max: ext.yMax });
+      if (plot.scales.y2) {
+        plot.setScale('y2', { min: ext.yMin, max: ext.yMax });
+      }
+    });
   }, []);
 
   // Toggle series visibility via the uPlot API + imperative legend update
