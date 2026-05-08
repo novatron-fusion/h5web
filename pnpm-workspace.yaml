@@ -43,13 +43,6 @@ verifyDepsBeforeRun: 'install'
 requiredScripts:
   - 'lint:eslint'
   - 'lint:tsc'
-resolvePeersFromWorkspaceRoot: false
 
 # Save exact dependency versions in `package.json`
 savePrefix: ''
-
-# Fail install if any dependency has unreviewed build scripts
-strictDepBuilds: true
-
-# Manage peer dependencies explicitly and predictibly
-strictPeerDependencies: true
