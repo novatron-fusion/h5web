@@ -231,7 +231,166 @@ function OverlayChart(props: Props) {
       positionTooltip(tip, u, cursorX, cursorY ?? 0);
     });
 
+    // Click-drag panning (without Ctrl) and wheel zoom
+    const over = plot.over;
+
+    function isZoomed(): boolean {
+      const [xData] = plot.data;
+      if (xData.length === 0) {
+        return false;
+      }
+      const fullXMin = xData[0];
+      const fullXMax = xData[xData.length - 1];
+      const curXMin = plot.scales.x.min;
+      const curXMax = plot.scales.x.max;
+      if (curXMin == null || curXMax == null) {
+        return false;
+      }
+      return curXMin > fullXMin + 1e-12 || curXMax < fullXMax - 1e-12;
+    }
+    let panStart: {
+      clientX: number;
+      clientY: number;
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+      y2Min: number;
+      y2Max: number;
+      xUnitsPerPx: number;
+      yUnitsPerPx: number;
+      y2UnitsPerPx: number;
+    } | null = null;
+    let rafPending = false;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    function onMouseDown(e: MouseEvent) {
+      if (e.ctrlKey || e.metaKey || e.button !== 0) {
+        return;
+      }
+      if (!isZoomed()) {
+        return;
+      }
+      const xs = plot.scales.x;
+      const ys = plot.scales.y;
+      const y2s = plot.scales.y2;
+      if (xs.min == null || xs.max == null || ys.min == null || ys.max == null) {
+        return;
+      }
+      panStart = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        xMin: xs.min,
+        xMax: xs.max,
+        yMin: ys.min,
+        yMax: ys.max,
+        y2Min: y2s?.min ?? 0,
+        y2Max: y2s?.max ?? 0,
+        xUnitsPerPx: plot.posToVal(1, 'x') - plot.posToVal(0, 'x'),
+        yUnitsPerPx: plot.posToVal(1, 'y') - plot.posToVal(0, 'y'),
+        y2UnitsPerPx: y2s ? plot.posToVal(1, 'y2') - plot.posToVal(0, 'y2') : 0,
+      };
+      over.style.cursor = 'grabbing';
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      if (!panStart) {
+        return;
+      }
+      e.preventDefault();
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      if (!rafPending) {
+        rafPending = true;
+        requestAnimationFrame(doPan);
+      }
+    }
+
+    function doPan() {
+      rafPending = false;
+      if (!panStart) {
+        return;
+      }
+      const dx = (lastClientX - panStart.clientX) * panStart.xUnitsPerPx;
+      const dy = (lastClientY - panStart.clientY) * panStart.yUnitsPerPx;
+      plot.batch(() => {
+        plot.setScale('x', { min: panStart!.xMin - dx, max: panStart!.xMax - dx });
+        plot.setScale('y', { min: panStart!.yMin - dy, max: panStart!.yMax - dy });
+        if (plot.scales.y2) {
+          const dy2 = (lastClientY - panStart!.clientY) * panStart!.y2UnitsPerPx;
+          plot.setScale('y2', { min: panStart!.y2Min - dy2, max: panStart!.y2Max - dy2 });
+        }
+      });
+    }
+
+    function onMouseUp() {
+      if (panStart) {
+        panStart = null;
+        over.style.cursor = '';
+      }
+    }
+
+    const WHEEL_ZOOM_FACTOR = 0.75;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const zoomingOut = e.deltaY > 0;
+      if (zoomingOut && !isZoomed()) {
+        return;
+      }
+      const { left, top } = plot.cursor;
+      if (left == null || top == null) {
+        return;
+      }
+
+      const [xData] = plot.data;
+      const fullXMin = xData[0];
+      const fullXMax = xData[xData.length - 1];
+      const fullXRange = fullXMax - fullXMin;
+
+      const leftPct = left / over.clientWidth;
+      const btmPct = 1 - top / over.clientHeight;
+
+      const oxRange = plot.scales.x.max! - plot.scales.x.min!;
+      let nxRange = zoomingOut ? oxRange / WHEEL_ZOOM_FACTOR : oxRange * WHEEL_ZOOM_FACTOR;
+      if (nxRange >= fullXRange) {
+        plot.setData(plot.data, true);
+        return;
+      }
+      const xVal = plot.posToVal(left, 'x');
+      let nxMin = xVal - leftPct * nxRange;
+      let nxMax = nxMin + nxRange;
+      if (nxMin < fullXMin) { nxMin = fullXMin; nxMax = fullXMin + nxRange; }
+      if (nxMax > fullXMax) { nxMax = fullXMax; nxMin = fullXMax - nxRange; }
+
+      const oyRange = plot.scales.y.max! - plot.scales.y.min!;
+      const nyRange = zoomingOut ? oyRange / WHEEL_ZOOM_FACTOR : oyRange * WHEEL_ZOOM_FACTOR;
+      const yVal = plot.posToVal(top, 'y');
+      const nyMin = yVal - btmPct * nyRange;
+
+      plot.batch(() => {
+        plot.setScale('x', { min: nxMin, max: nxMax });
+        plot.setScale('y', { min: nyMin, max: nyMin + nyRange });
+        if (plot.scales.y2) {
+          const oy2Range = plot.scales.y2.max! - plot.scales.y2.min!;
+          const ny2Range = zoomingOut ? oy2Range / WHEEL_ZOOM_FACTOR : oy2Range * WHEEL_ZOOM_FACTOR;
+          const y2Val = plot.posToVal(top, 'y2');
+          const ny2Min = y2Val - btmPct * ny2Range;
+          plot.setScale('y2', { min: ny2Min, max: ny2Min + ny2Range });
+        }
+      });
+    }
+
+    over.addEventListener('mousedown', onMouseDown);
+    over.addEventListener('wheel', onWheel, { passive: false });
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+
     return () => {
+      over.removeEventListener('mousedown', onMouseDown);
+      over.removeEventListener('wheel', onWheel);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
       plot.destroy();
       uPlotRef.current = null;
     };
