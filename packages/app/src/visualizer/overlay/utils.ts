@@ -13,6 +13,14 @@ export const COLORS = [
   'olive',
   'teal',
   'sienna',
+  'deeppink',
+  'slateblue',
+  'darkcyan',
+  'goldenrod',
+  'crimson',
+  'seagreen',
+  'coral',
+  'steelblue',
 ];
 
 /**
