@@ -131,6 +131,7 @@ export function buildTooltipHtml(
   u: uPlot,
   idx: number,
   seriesUnits: (string | undefined)[],
+  colors: string[],
 ): string {
   const xVal = u.data[0][idx];
 
@@ -148,11 +149,11 @@ export function buildTooltipHtml(
     if (val === null || val === undefined) {
       continue;
     }
-    const color = typeof s.stroke === 'string' ? s.stroke : '';
+    const color = colors[i - 1] ?? '';
     const label = typeof s.label === 'string' ? s.label : '';
     const unit = seriesUnits[i];
     const unitSuffix = unit ? ` ${unit}` : '';
-    html += `<div class="${styles.tooltipRow}"><span class="${styles.tooltipSwatch}" style="background:${color}"></span>${label}: ${formatTick(val)}${unitSuffix}</div>`;
+    html += `<div class="${styles.tooltipRow}"><span class="${styles.tooltipSwatch}" style="background-color:${color}"></span>${label}: ${formatTick(val)}${unitSuffix}</div>`;
   }
 
   return html;

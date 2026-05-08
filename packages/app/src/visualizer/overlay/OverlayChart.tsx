@@ -70,6 +70,9 @@ function OverlayChart(props: Props) {
     [stableCurves],
   );
 
+  const curveColorsRef = useRef<string[]>([]);
+  curveColorsRef.current = curveColors;
+
   // Scale key for each unit: first unit -> 'y' (left), others -> 'y2' (right)
   const scaleKeyForUnit = useCallback(
     (unit: string) => {
@@ -88,7 +91,7 @@ function OverlayChart(props: Props) {
       series.push({
         label: curve.label,
         stroke: curveColors[i],
-        width: 2,
+        width: 1,
         scale: scaleKeyForUnit(unit),
       });
     }
@@ -187,8 +190,7 @@ function OverlayChart(props: Props) {
       if (curMin === undefined || curMax === undefined) {
         return;
       }
-      const zoomed =
-        curMin > fullMin + 1e-12 || curMax < fullMax - 1e-12;
+      const zoomed = curMin > fullMin + 1e-12 || curMax < fullMax - 1e-12;
       btn.hidden = !zoomed;
     });
 
@@ -205,7 +207,12 @@ function OverlayChart(props: Props) {
         return;
       }
 
-      tip.innerHTML = buildTooltipHtml(u, idx, seriesUnitsRef.current);
+      tip.innerHTML = buildTooltipHtml(
+        u,
+        idx,
+        seriesUnitsRef.current,
+        curveColorsRef.current,
+      );
       tip.hidden = false;
       positionTooltip(tip, u, cursorX, cursorY ?? 0);
     });
@@ -274,20 +281,17 @@ function OverlayChart(props: Props) {
   );
 
   // Highlight a series on legend hover (imperative to avoid re-render)
-  const focusSeries = useCallback(
-    (seriesIdx: number | null) => {
-      const plot = uPlotRef.current;
-      if (!plot) {
-        return;
-      }
-      if (seriesIdx !== null) {
-        plot.setSeries(seriesIdx, { focus: true });
-      } else {
-        plot.setSeries(null, { focus: false });
-      }
-    },
-    [],
-  );
+  const focusSeries = useCallback((seriesIdx: number | null) => {
+    const plot = uPlotRef.current;
+    if (!plot) {
+      return;
+    }
+    if (seriesIdx !== null) {
+      plot.setSeries(seriesIdx, { focus: true });
+    } else {
+      plot.setSeries(null, { focus: false });
+    }
+  }, []);
 
   // Build legend items grouped by unit
   const legendGroups = useMemo(
@@ -304,40 +308,35 @@ function OverlayChart(props: Props) {
               <span className={styles.legendUnit}>{group.unit}</span>
             )}
             {group.items.map((item) => (
-                <span key={item.seriesIdx} className={styles.legendEntry}>
-                  <button
-                    type="button"
-                    className={styles.legendItem}
-                    aria-pressed
-                    onClick={(e) =>
-                      toggleSeries(
-                        item.seriesIdx,
-                        e.currentTarget,
-                      )
-                    }
-                    onMouseEnter={() => focusSeries(item.seriesIdx)}
-                    onMouseLeave={() => focusSeries(null)}
-                  >
-                    <span
-                      className={styles.legendColor}
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className={styles.legendLabel}>
-                      <span className={styles.legendSubsystem}>
-                        {item.subsystem}
-                      </span>
-                      {item.label}
+              <span key={item.seriesIdx} className={styles.legendEntry}>
+                <button
+                  type="button"
+                  className={styles.legendItem}
+                  aria-pressed
+                  onClick={(e) => toggleSeries(item.seriesIdx, e.currentTarget)}
+                  onMouseEnter={() => focusSeries(item.seriesIdx)}
+                  onMouseLeave={() => focusSeries(null)}
+                >
+                  <span
+                    className={styles.legendColor}
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <span className={styles.legendLabel}>
+                    <span className={styles.legendSubsystem}>
+                      {item.subsystem}
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.legendRemove}
-                    aria-label={`Remove ${item.label}`}
-                    onClick={() => onRemovePath(item.path)}
-                  >
-                    &times;
-                  </button>
-                </span>
+                    {item.label}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.legendRemove}
+                  aria-label={`Remove ${item.label}`}
+                  onClick={() => onRemovePath(item.path)}
+                >
+                  &times;
+                </button>
+              </span>
             ))}
           </div>
         ))}
