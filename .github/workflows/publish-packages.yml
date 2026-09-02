@@ -16,12 +16,19 @@ jobs:
     steps:
       - name: Checkout 🏷️
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Match tag to package version 🧐
-        id: packageVersion
-        uses: geritol/match-tag-to-package-version@0.2.0
-        with:
-          TAG_PREFIX: v
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VERSION="$(node -p \"require('./package.json').version\")"
+
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Git tag ($GITHUB_REF) does not match package.json version ($VERSION)"
+            exit 1
+          fi
 
       - name: Install ⚙️
         uses: ./.github/actions/install
@@ -48,6 +55,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish packages 🥳
-        run: pnpm -r publish --access public --no-git-checks --tag $NPM_TAG
+        run: pnpm -r publish --no-git-checks --tag $NPM_TAG
         env:
-          NPM_TAG: "${{ contains(steps.packageVersion.outputs.PACKAGE_VERSION, 'beta') && 'next' || 'latest' }}"
+          NPM_TAG: "${{ contains(github.ref_name, 'beta') && 'next' || 'latest' }}"
