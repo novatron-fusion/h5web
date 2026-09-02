@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           TAG="${GITHUB_REF#refs/tags/v}"
-          VERSION="$(node -p \"require('./package.json').version\")"
+          VERSION="$(node -p "require('./package.json').version")"
 
           if [ "$TAG" != "$VERSION" ]; then
             echo "Git tag ($GITHUB_REF) does not match package.json version ($VERSION)"
